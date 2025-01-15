@@ -416,7 +416,6 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.1);
   min-width: 400px;
   min-height: 200px;
 }
@@ -428,14 +427,13 @@ onUnmounted(() => {
   right: 0;
   bottom: 0;
   transition: background-color 0.3s ease;
-  background: rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(8px);
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* border: 1px solid rgba(255, 255, 255, 0.1); */
 }
 
 .wrapper:hover .bg {
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .container {
@@ -492,7 +490,6 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
