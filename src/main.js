@@ -33,13 +33,15 @@ if (started) {
 
 function createWindow(hash = '') {
   const mainWindow = new BrowserWindow({
-    width: 460,
-    height: 230,
+    width: 440,
+    height: 300,
     transparent: true,
     frame: false,
     backgroundColor: '#00000000',
     hasShadow: false,
     alwaysOnTop: true,
+    minWidth: 440,
+    minHeight: 300,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -163,5 +165,13 @@ ipcMain.handle('writeToClipboard', async (event, text) => {
   } catch (error) {
     console.error('Error writing to clipboard:', error)
     return { success: false, error: error.message }
+  }
+})
+
+// Add this with other IPC handlers
+ipcMain.handle('setWindowSize', async (event, width, height) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (window) {
+    window.setSize(Math.max(width, 400), Math.max(height, 200))
   }
 })
