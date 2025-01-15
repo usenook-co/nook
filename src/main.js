@@ -31,6 +31,38 @@ if (started) {
   app.quit()
 }
 
+function animateWindow(window, startBounds, endBounds, duration = 300) {
+  const startTime = Date.now()
+
+  const animate = () => {
+    const now = Date.now()
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / duration, 1)
+
+    // Ease out cubic function for smooth deceleration
+    const easeOut = 1 - Math.pow(1 - progress, 3)
+
+    const currentBounds = {
+      x: Math.round(startBounds.x + (endBounds.x - startBounds.x) * easeOut),
+      y: Math.round(startBounds.y + (endBounds.y - startBounds.y) * easeOut),
+      width: Math.round(startBounds.width + (endBounds.width - startBounds.width) * easeOut),
+      height: Math.round(startBounds.height + (endBounds.height - startBounds.height) * easeOut)
+    }
+
+    window.setBounds(currentBounds)
+
+    if (progress < 1) {
+      setTimeout(animate, 16) // roughly 60fps
+    } else {
+      // Animation complete, update tracking variables
+      windowPos = { x: endBounds.x, y: endBounds.y }
+      isDragging = false
+    }
+  }
+
+  animate()
+}
+
 function createWindow(hash = '') {
   const mainWindow = new BrowserWindow({
     width: 440,
@@ -169,9 +201,56 @@ ipcMain.handle('writeToClipboard', async (event, text) => {
 })
 
 // Add this with other IPC handlers
-ipcMain.handle('setWindowSize', async (event, width, height) => {
+ipcMain.handle('setWindowSize', async (event, width, height, maintainCenter) => {
   const window = BrowserWindow.fromWebContents(event.sender)
   if (window) {
-    window.setSize(Math.max(width, 400), Math.max(height, 200))
+    const currentBounds = window.getBounds()
+    const newWidth = Math.max(width, 400)
+    const newHeight = Math.max(height, 200)
+
+    if (maintainCenter) {
+      const deltaWidth = newWidth - currentBounds.width
+      const newX = currentBounds.x - deltaWidth / 2
+      const endBounds = {
+        x: Math.round(newX),
+        y: currentBounds.y,
+        width: newWidth,
+        height: newHeight
+      }
+      animateWindow(window, currentBounds, endBounds)
+    } else {
+      const endBounds = {
+        x: currentBounds.x,
+        y: currentBounds.y,
+        width: newWidth,
+        height: newHeight
+      }
+      animateWindow(window, currentBounds, endBounds)
+    }
+  }
+})
+
+// Add this with other IPC handlers
+ipcMain.handle('setAspectRatio', async (event, ratio) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (window) {
+    // Set aspect ratio first
+    window.setAspectRatio(ratio)
+
+    // Get current bounds after aspect ratio is set
+    const currentBounds = window.getBounds()
+    // Calculate new width based on current height and ratio
+    const newWidth = Math.max(currentBounds.height * ratio, 400)
+    const deltaWidth = newWidth - currentBounds.width
+    const newX = currentBounds.x - deltaWidth / 2
+
+    const endBounds = {
+      x: Math.round(newX),
+      y: currentBounds.y,
+      width: newWidth,
+      height: currentBounds.height
+    }
+
+    animateWindow(window, currentBounds, endBounds)
   }
 })

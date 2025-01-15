@@ -11,20 +11,8 @@ contextBridge.exposeInMainWorld('electron', {
   stopResize: () => ipcRenderer.send('stopResize'),
   openExternal: url => shell.openExternal(url),
   createInitiatorWindow: () => ipcRenderer.send('createInitiatorWindow'),
-  writeToClipboard: async text => {
-    try {
-      const result = await ipcRenderer.invoke('writeToClipboard', text)
-      return result
-    } catch (error) {
-      console.error('Error writing to clipboard:', error)
-      return { success: false, error: error.message }
-    }
-  },
-  setWindowSize: async (width, height) => {
-    try {
-      await ipcRenderer.invoke('setWindowSize', width, height)
-    } catch (error) {
-      console.error('Error setting window size:', error)
-    }
-  }
+  writeToClipboard: text => ipcRenderer.invoke('writeToClipboard', text),
+  setWindowSize: (width, height, maintainCenter = false) =>
+    ipcRenderer.invoke('setWindowSize', width, height, maintainCenter),
+  setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio)
 })

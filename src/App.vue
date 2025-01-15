@@ -35,8 +35,14 @@ function stopDrag() {
 }
 
 watch(participantCount, count => {
-  updateWindowSize(count)
+  updateAspectRatio(count)
 })
+
+async function updateAspectRatio(count) {
+  if (window?.electron?.setAspectRatio) {
+    await window.electron.setAspectRatio(Math.max(count, 2))
+  }
+}
 
 async function createRoom() {
   try {
@@ -332,9 +338,10 @@ function handleParticipantDisconnected(participant) {
 }
 
 function updateWindowSize(count) {
-  const baseWidth = Math.max(count, 2) * 200 // 200px per participant, minimum 2:1 ratio
+  // This is now only used for non-aspect-ratio related size changes
+  const baseWidth = Math.max(count, 2) * 200
   if (window?.electron?.setWindowSize) {
-    window.electron.setWindowSize(baseWidth, 200)
+    window.electron.setWindowSize(baseWidth, 200, false)
   }
 }
 
