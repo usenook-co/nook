@@ -84,6 +84,14 @@ async function leaveRoom() {
     localStream.value.getTracks().forEach(track => track.stop())
     localStream.value = null
   }
+  // Clear participants
+  participants.value.clear()
+  participantCount.value = 1
+  // Clear all remote participant videos
+  const avatarGroup = document.querySelector('.avatar-group')
+  const containers = avatarGroup.querySelectorAll('.avatar-container:not(:first-child)')
+  containers.forEach(container => container.remove())
+
   isConnected.value = false
   showOverlay.value = true
   roomName.value = ''
@@ -161,6 +169,13 @@ async function initializeVideo() {
   try {
     console.log('Initializing video...')
 
+    // Clean up any existing participants and videos first
+    participants.value.clear()
+    participantCount.value = 1
+    const avatarGroup = document.querySelector('.avatar-group')
+    const containers = avatarGroup.querySelectorAll('.avatar-container:not(:first-child)')
+    containers.forEach(container => container.remove())
+
     // Get local video stream
     console.log('Requesting media access...')
     if (!window.navigator.mediaDevices?.getUserMedia) {
@@ -217,8 +232,8 @@ async function initializeVideo() {
     })
 
     // Handle any participants already in the room
-    const participants = Array.from(twilioRoom.participants.values())
-    participants.forEach(participant => {
+    const existingParticipants = Array.from(twilioRoom.participants.values())
+    existingParticipants.forEach(participant => {
       console.log('Already connected participant:', participant)
       handleParticipantConnected(participant)
     })
@@ -234,6 +249,12 @@ async function initializeVideo() {
 
 function handleParticipantConnected(participant) {
   console.log('Setting up participant:', participant.identity)
+  // Skip if this is the local participant
+  if (participant.identity === identity.value) {
+    console.log('Skipping local participant setup')
+    return
+  }
+
   participants.value.set(participant.sid, participant)
   participantCount.value = participants.value.size + 1 // +1 for local participant
 
@@ -251,14 +272,19 @@ function handleParticipantConnected(participant) {
 
   // Handle participant's existing tracks
   Array.from(participant.tracks.values()).forEach(publication => {
-    if (publication.track) {
+    if (publication.track && publication.kind === 'video') {
       handleTrackSubscribed(publication.track, participant)
     }
   })
 
   // Handle participant's new track publications
   participant.on('trackSubscribed', track => {
-    handleTrackSubscribed(track, participant)
+    if (track.kind === 'video') {
+      handleTrackSubscribed(track, participant)
+    } else if (track.kind === 'audio') {
+      // Just attach audio without visual element
+      track.attach()
+    }
   })
 
   participant.on('trackUnsubscribed', track => {
@@ -267,14 +293,20 @@ function handleParticipantConnected(participant) {
 }
 
 function handleTrackSubscribed(track, participant) {
+  // Skip if this is the local participant
+  if (participant.identity === identity.value) {
+    console.log('Skipping local participant track')
+    return
+  }
+
+  if (track.kind !== 'video') return
+
   const container = document.getElementById(participant.sid)
   if (!container) return
 
   const videoEl = container.querySelector('video')
-  if (track.kind === 'video' && videoEl) {
+  if (videoEl) {
     track.attach(videoEl)
-  } else if (track.kind === 'audio') {
-    track.attach() // This will create and attach to an audio element automatically
   }
 }
 
@@ -284,6 +316,12 @@ function handleTrackUnsubscribed(track) {
 
 function handleParticipantDisconnected(participant) {
   console.log('Participant disconnected:', participant.identity)
+  // Skip if this is the local participant
+  if (participant.identity === identity.value) {
+    console.log('Skipping local participant cleanup')
+    return
+  }
+
   participants.value.delete(participant.sid)
   participantCount.value = participants.value.size + 1 // +1 for local participant
 
