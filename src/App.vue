@@ -22,6 +22,18 @@ const isJoiningRoom = ref(false)
 const participantCount = ref(1)
 const wrapper = ref(null)
 
+function startDrag() {
+  if (window?.electron?.startDrag) {
+    window.electron.startDrag()
+  }
+}
+
+function stopDrag() {
+  if (window?.electron?.stopDrag) {
+    window.electron.stopDrag()
+  }
+}
+
 watch(participantCount, count => {
   updateWindowSize(count)
 })
