@@ -98,6 +98,11 @@ async function leaveRoom() {
   const containers = avatarGroup.querySelectorAll('.avatar-container:not(:first-child)')
   containers.forEach(container => container.remove())
 
+  // Reset aspect ratio to 2:1
+  if (window?.electron?.setAspectRatio) {
+    await window.electron.setAspectRatio(2)
+  }
+
   isConnected.value = false
   showOverlay.value = true
   roomName.value = ''
@@ -348,6 +353,10 @@ function updateWindowSize(count) {
 onMounted(() => {
   // Don't auto-initialize video, wait for user action
   showOverlay.value = true
+  // Set initial aspect ratio to 2:1
+  if (window?.electron?.setAspectRatio) {
+    window.electron.setAspectRatio(2)
+  }
 })
 
 onUnmounted(() => {

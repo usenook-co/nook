@@ -2,7 +2,10 @@ import { app, BrowserWindow, ipcMain, clipboard } from 'electron'
 import path from 'node:path'
 import { spawn } from 'child_process'
 import started from 'electron-squirrel-startup'
+import Store from 'electron-store'
 require('@electron/remote/main').initialize()
+
+const store = new Store()
 
 let isDragging = false
 let lastMousePos = { x: 0, y: 0 }
@@ -64,15 +67,34 @@ function animateWindow(window, startBounds, endBounds, duration = 300) {
 }
 
 function createWindow(hash = '') {
-  const mainWindow = new BrowserWindow({
-    width: 440,
-    height: 300,
+  // Get saved position or use default centered position
+  const savedPosition = store.get('windowPosition')
+  const { width, height } = { width: 600, height: 300 }
+
+  // Get screen dimensions to ensure window is visible
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { workArea } = primaryDisplay
+
+  // Ensure saved position is within visible screen bounds
+  let x = savedPosition ? savedPosition.x : Math.round(workArea.x + (workArea.width - width) / 2)
+  let y = savedPosition ? savedPosition.y : Math.round(workArea.y + (workArea.height - height) / 2)
+
+  // Validate position is on screen
+  x = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width)
+  y = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height)
+
+  const win = new BrowserWindow({
+    width,
+    height,
+    x,
+    y,
     transparent: true,
     frame: false,
     backgroundColor: '#00000000',
     hasShadow: false,
     alwaysOnTop: true,
-    minWidth: 440,
+    minWidth: 600,
     minHeight: 300,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -85,8 +107,21 @@ function createWindow(hash = '') {
     }
   })
 
+  // Set 2:1 aspect ratio immediately after creation
+  win.setAspectRatio(2)
+
+  // Initialize window position tracking
+  const bounds = win.getBounds()
+  windowPos = { x: bounds.x, y: bounds.y }
+
+  // Save window position when it moves
+  win.on('moved', () => {
+    const position = win.getBounds()
+    store.set('windowPosition', { x: position.x, y: position.y })
+  })
+
   // Enable screen capture
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+  win.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
     const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write']
     console.log('Permission requested:', permission)
     if (allowedPermissions.includes(permission)) {
@@ -97,31 +132,25 @@ function createWindow(hash = '') {
   })
 
   // Set default media permissions
-  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
+  win.webContents.session.setPermissionCheckHandler((webContents, permission) => {
     const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write']
     console.log('Permission check:', permission)
     return allowedPermissions.includes(permission)
   })
 
   // Request media access by default
-  mainWindow.webContents.session.setDevicePermissionHandler(details => {
+  win.webContents.session.setDevicePermissionHandler(details => {
     console.log('Device permission requested:', details)
     return true
   })
 
   // Enable media permissions
-  mainWindow.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
+  win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
     console.log('Display media requested')
     callback(true)
   })
 
-  // Set 2:1 aspect ratio
-  mainWindow.setAspectRatio(2)
-
-  require('@electron/remote/main').enable(mainWindow.webContents)
-
-  const bounds = mainWindow.getBounds()
-  windowPos = { x: bounds.x, y: bounds.y }
+  require('@electron/remote/main').enable(win.webContents)
 
   const mouseTracker = spawn('./mouse_tracker')
 
@@ -138,7 +167,7 @@ function createWindow(hash = '') {
 
           windowPos.x += deltaX
           windowPos.y += deltaY
-          mainWindow.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
+          win.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
         }
 
         lastMousePos = { x: mouseX, y: mouseY }
@@ -148,7 +177,7 @@ function createWindow(hash = '') {
     }
   })
 
-  mainWindow.on('closed', () => {
+  win.on('closed', () => {
     mouseTracker.kill()
   })
 
@@ -159,12 +188,12 @@ function createWindow(hash = '') {
   console.log('Loading URL:', url, 'with hash:', hash)
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(url)
+    win.loadURL(url)
   } else {
-    mainWindow.loadFile(url, { hash })
+    win.loadFile(url, { hash })
   }
 
-  return mainWindow
+  return win
 }
 
 // Add IPC handler for creating new windows
