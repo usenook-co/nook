@@ -4,9 +4,13 @@ import './reset.css'
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import Video from 'twilio-video'
 
+// Keep Twilio objects outside of Vue's reactivity
+let twilioRoom = null
+let twilioLocalParticipant = null
+let twilioScreenTrack = null
+
+// Vue refs for UI state only
 const localVideo = ref(null)
-const room = ref(null)
-const localStream = ref(null)
 const isConnected = ref(false)
 const showOverlay = ref(true)
 const error = ref('')
@@ -14,13 +18,13 @@ const roomName = ref('')
 const identity = ref(`user-${Math.random().toString(36).substring(7)}`)
 const isCreatingRoom = ref(false)
 const participants = ref(new Map())
-
-// Room joining state
+const isScreenSharing = ref(false)
+const screenContainer = ref(null)
 const joinRoomInput = ref('')
 const isJoiningRoom = ref(false)
-
 const participantCount = ref(1)
 const wrapper = ref(null)
+const localStream = ref(null)
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -82,26 +86,32 @@ async function joinRoom() {
 }
 
 async function leaveRoom() {
-  if (room.value) {
-    room.value.disconnect()
-    room.value = null
+  if (isScreenSharing.value) {
+    if (twilioScreenTrack) {
+      twilioScreenTrack.stop()
+      twilioScreenTrack = null
+    }
+    isScreenSharing.value = false
   }
+
+  if (twilioRoom) {
+    twilioRoom.disconnect()
+    twilioRoom = null
+  }
+
+  twilioLocalParticipant = null
+
   if (localStream.value) {
     localStream.value.getTracks().forEach(track => track.stop())
     localStream.value = null
   }
-  // Clear participants
+
   participants.value.clear()
   participantCount.value = 1
-  // Clear all remote participant videos
+
   const avatarGroup = document.querySelector('.avatar-group')
   const containers = avatarGroup.querySelectorAll('.avatar-container:not(:first-child)')
   containers.forEach(container => container.remove())
-
-  // Reset aspect ratio to 2:1
-  if (window?.electron?.setAspectRatio) {
-    await window.electron.setAspectRatio(2)
-  }
 
   isConnected.value = false
   showOverlay.value = true
@@ -180,15 +190,6 @@ async function initializeVideo() {
   try {
     console.log('Initializing video...')
 
-    // Clean up any existing participants and videos first
-    participants.value.clear()
-    participantCount.value = 1
-    const avatarGroup = document.querySelector('.avatar-group')
-    const containers = avatarGroup.querySelectorAll('.avatar-container:not(:first-child)')
-    containers.forEach(container => container.remove())
-
-    // Get local video stream
-    console.log('Requesting media access...')
     if (!window.navigator.mediaDevices?.getUserMedia) {
       throw new Error('Media API not available')
     }
@@ -205,17 +206,13 @@ async function initializeVideo() {
       },
       audio: true
     })
-    console.log('Got local stream:', localStream.value.getTracks())
 
     if (localVideo.value) {
       localVideo.value.srcObject = localStream.value
-      console.log('Set local video source')
     }
 
-    // Get Twilio access token
     const token = await getAccessToken()
 
-    // Connect to the room
     const roomOptions = {
       name: roomName.value,
       tracks: localStream.value.getTracks(),
@@ -224,12 +221,8 @@ async function initializeVideo() {
       dominantSpeaker: true
     }
 
-    console.log('Connecting to room with options:', roomOptions)
-    const twilioRoom = await Video.connect(token, roomOptions)
-    console.log('Connected to room:', twilioRoom.name)
-
-    // Store the room reference
-    room.value = twilioRoom
+    twilioRoom = await Video.connect(token, roomOptions)
+    twilioLocalParticipant = twilioRoom.localParticipant
 
     // Set up room event listeners
     twilioRoom.on('participantConnected', participant => {
@@ -242,19 +235,17 @@ async function initializeVideo() {
       handleParticipantDisconnected(participant)
     })
 
-    // Handle any participants already in the room
-    const existingParticipants = Array.from(twilioRoom.participants.values())
-    existingParticipants.forEach(participant => {
-      console.log('Already connected participant:', participant)
+    // Handle existing participants
+    Array.from(twilioRoom.participants.values()).forEach(participant => {
       handleParticipantConnected(participant)
     })
 
     isConnected.value = true
     showOverlay.value = false
-  } catch (error) {
-    console.error('Error initializing video:', error)
-    error.value = error.message
-    throw error
+  } catch (err) {
+    console.error('Error initializing video:', err)
+    error.value = err.message
+    throw err
   }
 }
 
@@ -312,16 +303,38 @@ function handleTrackSubscribed(track, participant) {
 
   if (track.kind !== 'video') return
 
-  const container = document.getElementById(participant.sid)
-  if (!container) return
+  // Check if this is a screen share track
+  const isScreenShare = track.name === 'screen'
 
-  const videoEl = container.querySelector('video')
-  if (videoEl) {
-    track.attach(videoEl)
+  if (isScreenShare) {
+    // Create screen share container
+    const container = document.createElement('div')
+    container.className = 'screen-share-container'
+    container.id = `screen-${participant.sid}`
+    const video = document.createElement('video')
+    video.autoplay = true
+    video.playsInline = true
+    container.appendChild(video)
+    document.querySelector('.avatar-group').appendChild(container)
+    track.attach(video)
+  } else {
+    const container = document.getElementById(participant.sid)
+    if (!container) return
+
+    const videoEl = container.querySelector('video')
+    if (videoEl) {
+      track.attach(videoEl)
+    }
   }
 }
 
-function handleTrackUnsubscribed(track) {
+function handleTrackUnsubscribed(track, participant) {
+  if (track.kind === 'video' && track.name === 'screen') {
+    const container = document.getElementById(`screen-${participant.sid}`)
+    if (container) {
+      container.remove()
+    }
+  }
   track.detach()
 }
 
@@ -347,6 +360,95 @@ function updateWindowSize(count) {
   const baseWidth = Math.max(count, 2) * 200
   if (window?.electron?.setWindowSize) {
     window.electron.setWindowSize(baseWidth, 200, false)
+  }
+}
+
+async function toggleScreenShare() {
+  try {
+    if (isScreenSharing.value) {
+      // Stop screen sharing
+      if (twilioScreenTrack) {
+        try {
+          if (twilioLocalParticipant) {
+            await twilioLocalParticipant.unpublishTrack(twilioScreenTrack)
+          }
+        } catch (e) {
+          console.error('Error unpublishing track:', e)
+        }
+
+        twilioScreenTrack.stop()
+        twilioScreenTrack = null
+      }
+      isScreenSharing.value = false
+
+      // Remove screen share container
+      const container = document.querySelector('.screen-share-container')
+      if (container) {
+        container.remove()
+      }
+    } else {
+      // Get available screen sources
+      const sources = await window.electron.getScreenSources()
+      console.log('Available sources:', sources)
+
+      if (!sources || sources.length === 0) {
+        throw new Error('No screen sources available')
+      }
+
+      // Get the entire screen source
+      const source = sources.find(s => s.name === 'Entire Screen' || s.name === 'Screen 1') || sources[0]
+      console.log('Selected source:', source)
+
+      // Create stream using the source ID
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.id
+          }
+        }
+      })
+
+      const videoTrack = stream.getVideoTracks()[0]
+
+      // Create and add screen share container first
+      const container = document.createElement('div')
+      container.className = 'screen-share-container'
+      const video = document.createElement('video')
+      video.autoplay = true
+      video.playsInline = true
+      video.srcObject = new MediaStream([videoTrack])
+      container.appendChild(video)
+      document.querySelector('.avatar-group').appendChild(container)
+
+      // Create Twilio track after UI is set up
+      twilioScreenTrack = new Video.LocalVideoTrack(videoTrack, {
+        name: 'screen',
+        logLevel: 'off'
+      })
+
+      // Handle when user stops sharing via browser controls
+      videoTrack.addEventListener('ended', () => {
+        if (isScreenSharing.value) {
+          toggleScreenShare()
+        }
+      })
+
+      try {
+        if (twilioLocalParticipant) {
+          await twilioLocalParticipant.publishTrack(twilioScreenTrack)
+        }
+      } catch (e) {
+        console.error('Error publishing track:', e)
+        throw e
+      }
+
+      isScreenSharing.value = true
+    }
+  } catch (err) {
+    console.error('Error toggling screen share:', err)
+    error.value = 'Failed to toggle screen sharing: ' + err.message
   }
 }
 
@@ -404,6 +506,9 @@ onUnmounted(() => {
 
       <div v-if="isConnected" class="room-info">
         <div class="room-name">Room: {{ roomName }}</div>
+        <button @click="toggleScreenShare" class="screen-share-button" :class="{ active: isScreenSharing }">
+          {{ isScreenSharing ? 'Stop Sharing' : 'Share Screen' }}
+        </button>
         <button @click="leaveRoom" class="leave-button">Leave Room</button>
       </div>
     </div>
@@ -612,5 +717,48 @@ onUnmounted(() => {
 
 .leave-button:hover {
   background: #ff3333;
+}
+
+.screen-share-button {
+  background: #2196f3;
+  color: white;
+  border: none;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-right: 8px;
+}
+
+.screen-share-button:hover {
+  background: #1976d2;
+}
+
+.screen-share-button.active {
+  background: #ffa000;
+}
+
+.screen-share-button.active:hover {
+  background: #ff8f00;
+}
+
+.screen-share-container {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 240px;
+  height: 135px;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.screen-share-container video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 </style>

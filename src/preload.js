@@ -2,6 +2,7 @@
 // https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts
 
 const { contextBridge, ipcRenderer, shell } = require('electron')
+const { desktopCapturer } = require('@electron/remote')
 
 // Expose protected methods that allow the renderer process to use
 contextBridge.exposeInMainWorld('electron', {
@@ -14,5 +15,6 @@ contextBridge.exposeInMainWorld('electron', {
   writeToClipboard: text => ipcRenderer.invoke('writeToClipboard', text),
   setWindowSize: (width, height, maintainCenter = false) =>
     ipcRenderer.invoke('setWindowSize', width, height, maintainCenter),
-  setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio)
+  setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio),
+  getScreenSources: () => desktopCapturer.getSources({ types: ['window', 'screen'] })
 })

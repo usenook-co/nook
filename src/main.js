@@ -3,7 +3,10 @@ import path from 'node:path'
 import { spawn } from 'child_process'
 import started from 'electron-squirrel-startup'
 import Store from 'electron-store'
-require('@electron/remote/main').initialize()
+
+// Initialize remote module
+const remote = require('@electron/remote/main')
+remote.initialize()
 
 const store = new Store()
 
@@ -122,7 +125,7 @@ function createWindow(hash = '') {
 
   // Enable screen capture
   win.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write']
+    const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write', 'screen', 'desktop-capture']
     console.log('Permission requested:', permission)
     if (allowedPermissions.includes(permission)) {
       callback(true)
@@ -133,7 +136,7 @@ function createWindow(hash = '') {
 
   // Set default media permissions
   win.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write']
+    const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write', 'screen', 'desktop-capture']
     console.log('Permission check:', permission)
     return allowedPermissions.includes(permission)
   })
@@ -150,7 +153,8 @@ function createWindow(hash = '') {
     callback(true)
   })
 
-  require('@electron/remote/main').enable(win.webContents)
+  // Enable remote module for this window
+  remote.enable(win.webContents)
 
   const mouseTracker = spawn('./mouse_tracker')
 
