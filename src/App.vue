@@ -1,83 +1,155 @@
 <script setup>
-import './polyfills'
-import './reset.css'
-import { ref, onMounted, onUnmounted } from 'vue'
+import "./polyfills"
+import "./reset.css"
+import { ref, onMounted, onUnmounted } from "vue"
+import Video from "twilio-video"
 
 const localVideo = ref(null)
-const peerConnection = ref(null)
+const room = ref(null)
 const localStream = ref(null)
-const connectionData = ref('')
-const peerData = ref('')
 const isConnected = ref(false)
-const showOverlay = ref(false)
-const isInitiator = ref(window.location.hash === '#init')
-const error = ref('')
-const iceCandidates = ref([])
-const isIceGatheringComplete = ref(false)
+const showOverlay = ref(true)
+const error = ref("")
+const roomName = ref("")
+const identity = ref(`user-${Math.random().toString(36).substring(7)}`)
+const isCreatingRoom = ref(false)
+
+// Room joining state
+const joinRoomInput = ref("")
+const isJoiningRoom = ref(false)
+
+async function createRoom() {
+  try {
+    isCreatingRoom.value = true
+    roomName.value = `room-${Math.random().toString(36).substring(7)}`
+    await initializeVideo()
+
+    // Copy room name to clipboard for sharing
+    if (window?.electron?.writeToClipboard) {
+      await window.electron.writeToClipboard(roomName.value)
+      console.log("Room name copied to clipboard:", roomName.value)
+    }
+  } catch (err) {
+    error.value = "Failed to create room"
+    console.error(err)
+  } finally {
+    isCreatingRoom.value = false
+  }
+}
+
+async function joinRoom() {
+  try {
+    if (!joinRoomInput.value) {
+      error.value = "Please enter a room name"
+      return
+    }
+
+    isJoiningRoom.value = true
+    roomName.value = joinRoomInput.value
+    await initializeVideo()
+  } catch (err) {
+    error.value = "Failed to join room"
+    console.error(err)
+  } finally {
+    isJoiningRoom.value = false
+  }
+}
+
+async function leaveRoom() {
+  if (room.value) {
+    room.value.disconnect()
+    room.value = null
+  }
+  if (localStream.value) {
+    localStream.value.getTracks().forEach((track) => track.stop())
+    localStream.value = null
+  }
+  isConnected.value = false
+  showOverlay.value = true
+  roomName.value = ""
+  joinRoomInput.value = ""
+}
 
 async function getBestVideoDevice() {
   const devices = await navigator.mediaDevices.enumerateDevices()
-  const videoDevices = devices.filter(device => device.kind === 'videoinput')
+  const videoDevices = devices.filter((device) => device.kind === "videoinput")
 
   if (videoDevices.length === 0) {
-    throw new Error('No video devices found')
+    throw new Error("No video devices found")
   }
 
   // Prefer external cameras (usually better quality)
-  // They often have 'USB' or 'External' in their label
   const externalCamera = videoDevices.find(
-    device => device.label.toLowerCase().includes('usb') || device.label.toLowerCase().includes('external')
+    (device) =>
+      device.label.toLowerCase().includes("usb") ||
+      device.label.toLowerCase().includes("external")
   )
 
   if (externalCamera) {
-    console.log('Found external camera:', externalCamera.label)
+    console.log("Found external camera:", externalCamera.label)
     return externalCamera.deviceId
   }
 
   // If no external camera, prefer back camera on mobile devices
   const backCamera = videoDevices.find(
-    device =>
-      device.label.toLowerCase().includes('back') ||
-      device.label.toLowerCase().includes('rear') ||
-      device.label.toLowerCase().includes('camm')
+    (device) =>
+      device.label.toLowerCase().includes("back") ||
+      device.label.toLowerCase().includes("rear") ||
+      device.label.toLowerCase().includes("camm")
   )
 
   if (backCamera) {
-    console.log('Found back camera:', backCamera.label)
+    console.log("Found back camera:", backCamera.label)
     return backCamera.deviceId
   }
 
-  // Fall back to the last device in the list (often the best quality on desktops)
-  console.log('Using default camera:', videoDevices[videoDevices.length - 1].label)
+  console.log(
+    "Using default camera:",
+    videoDevices[videoDevices.length - 1].label
+  )
   return videoDevices[videoDevices.length - 1].deviceId
 }
 
-const config = {
-  iceServers: [
-    {
-      urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302']
-    },
-    {
-      urls: ['turns:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:443', 'turn:openrelay.metered.ca:80'],
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+async function getAccessToken() {
+  try {
+    const serverUrl =
+      process.env.NODE_ENV === "development"
+        ? "http://localhost:3000"
+        : "http://localhost:3000" // Change this in production
+
+    const response = await fetch(`${serverUrl}/token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        identity: identity.value,
+        room: roomName.value,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || "Failed to get access token")
     }
-  ],
-  iceCandidatePoolSize: 10,
-  bundlePolicy: 'max-bundle',
-  rtcpMuxPolicy: 'require',
-  sdpSemantics: 'unified-plan',
-  iceTransportPolicy: 'all'
+
+    const data = await response.json()
+    return data.token
+  } catch (err) {
+    console.error("Error getting access token:", err)
+    error.value = err.message || "Failed to get access token"
+    throw err
+  }
 }
 
-async function initializeWebRTC() {
+async function initializeVideo() {
   try {
-    console.log('Initializing WebRTC...')
+    console.log("Initializing video...")
 
     // Get local video stream
-    console.log('Requesting media access...')
+    console.log("Requesting media access...")
     if (!window.navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Media API not available')
+      throw new Error("Media API not available")
     }
 
     // Get the best available camera
@@ -88,471 +160,338 @@ async function initializeWebRTC() {
         deviceId: { exact: deviceId },
         width: { ideal: 320 },
         height: { ideal: 320 },
-        aspectRatio: { ideal: 1 }
+        aspectRatio: { ideal: 1 },
       },
-      audio: true
+      audio: true,
     })
-    console.log('Got local stream:', localStream.value.getTracks())
+    console.log("Got local stream:", localStream.value.getTracks())
 
     if (localVideo.value) {
       localVideo.value.srcObject = localStream.value
-      console.log('Set local video source')
+      console.log("Set local video source")
     }
 
-    // Create peer connection
-    peerConnection.value = new RTCPeerConnection(config)
-    console.log('Created peer connection')
+    // Get Twilio access token
+    const token = await getAccessToken()
 
-    // Add ICE connection monitoring
-    peerConnection.value.oniceconnectionstatechange = () => {
-      console.log('ICE connection state:', peerConnection.value.iceConnectionState)
-      if (peerConnection.value.iceConnectionState === 'failed') {
-        console.log('ICE Connection failed - attempting restart...')
-        peerConnection.value.restartIce()
-      }
+    // Connect to the room
+    const roomOptions = {
+      name: roomName.value,
+      tracks: localStream.value.getTracks(),
+      video: { height: 320, width: 320 },
+      audio: true,
+      dominantSpeaker: true,
     }
 
-    // Monitor ICE gathering state
-    peerConnection.value.onicegatheringstatechange = () => {
-      console.log('ICE gathering state:', peerConnection.value.iceGatheringState)
-    }
+    console.log("Connecting to room with options:", roomOptions)
+    const twilioRoom = await Video.connect(token, roomOptions)
+    console.log("Connected to room:", twilioRoom.name)
 
-    // Enhanced ICE candidate handling
-    peerConnection.value.onicecandidate = event => {
-      if (event.candidate) {
-        console.log('New ICE candidate:', event.candidate.type)
-        iceCandidates.value.push(event.candidate)
+    // Store the room reference
+    room.value = twilioRoom
 
-        // If we're the initiator, include the candidate in the connection data
-        if (isInitiator.value) {
-          connectionData.value = JSON.stringify({
-            type: peerConnection.value.localDescription.type,
-            sdp: peerConnection.value.localDescription.sdp,
-            candidates: iceCandidates.value
-          })
-        }
-      } else {
-        console.log('ICE gathering completed')
-        isIceGatheringComplete.value = true
-        const desc = peerConnection.value.localDescription
-        console.log('Final local description:', desc)
-
-        // Final connection data with all candidates
-        connectionData.value = JSON.stringify({
-          type: desc.type,
-          sdp: desc.sdp,
-          candidates: iceCandidates.value
-        })
-      }
-    }
-
-    // Add local stream
-    localStream.value.getTracks().forEach(track => {
-      peerConnection.value.addTrack(track, localStream.value)
+    // Set up room event listeners
+    twilioRoom.on("participantConnected", (participant) => {
+      console.log("A remote participant connected:", participant)
+      handleParticipantConnected(participant)
     })
 
-    // Handle incoming streams
-    peerConnection.value.ontrack = event => {
-      console.log('Received remote stream')
-      const container = document.createElement('div')
-      container.className = 'avatar-container'
+    twilioRoom.on("participantDisconnected", (participant) => {
+      console.log("A remote participant disconnected:", participant)
+      handleParticipantDisconnected(participant)
+    })
 
-      const videoEl = document.createElement('video')
-      videoEl.className = 'avatar'
-      videoEl.srcObject = event.streams[0]
-      videoEl.autoplay = true
-      videoEl.playsInline = true
+    // Handle any participants already in the room
+    const participants = Array.from(twilioRoom.participants.values())
+    participants.forEach((participant) => {
+      console.log("Already connected participant:", participant)
+      handleParticipantConnected(participant)
+    })
 
-      container.appendChild(videoEl)
-      document.querySelector('.avatar-group').appendChild(container)
-    }
-
-    // Handle connection state changes
-    peerConnection.value.onconnectionstatechange = () => {
-      const state = peerConnection.value.connectionState
-      console.log('Connection state:', state)
-      if (state === 'connected') {
-        isConnected.value = true
-        showOverlay.value = false
-      } else if (state === 'failed' || state === 'disconnected' || state === 'closed') {
-        error.value = `Connection ${state}`
-        isConnected.value = false
-      }
-    }
-
-    // If initiator, create offer
-    if (isInitiator.value) {
-      const offer = await peerConnection.value.createOffer()
-      await peerConnection.value.setLocalDescription(offer)
-    }
+    isConnected.value = true
+    showOverlay.value = false
   } catch (error) {
-    console.error('Error initializing WebRTC:', error)
+    console.error("Error initializing video:", error)
     error.value = error.message
+    throw error
   }
 }
 
-async function connectWithPeer() {
-  try {
-    if (!peerConnection.value || !peerData.value) {
-      throw new Error('No peer connection available')
+function handleParticipantConnected(participant) {
+  console.log("Setting up participant:", participant.identity)
+
+  const container = document.createElement("div")
+  container.id = participant.sid
+  container.className = "avatar-container"
+
+  const videoEl = document.createElement("video")
+  videoEl.className = "avatar"
+  videoEl.autoplay = true
+  videoEl.playsInline = true
+
+  container.appendChild(videoEl)
+  document.querySelector(".avatar-group").appendChild(container)
+
+  // Handle participant's existing tracks
+  Array.from(participant.tracks.values()).forEach((publication) => {
+    if (publication.track) {
+      handleTrackSubscribed(publication.track, participant)
     }
+  })
 
-    const data = JSON.parse(peerData.value)
-    console.log('Connecting with peer data:', data)
+  // Handle participant's new track publications
+  participant.on("trackSubscribed", (track) => {
+    handleTrackSubscribed(track, participant)
+  })
 
-    if (data.type === 'offer') {
-      console.log('Setting remote description (offer)')
-      await peerConnection.value.setRemoteDescription(
-        new RTCSessionDescription({
-          type: data.type,
-          sdp: data.sdp
-        })
-      )
+  participant.on("trackUnsubscribed", (track) => {
+    handleTrackUnsubscribed(track)
+  })
+}
 
-      // Add received ICE candidates
-      if (data.candidates) {
-        console.log('Adding received ICE candidates')
-        for (const candidate of data.candidates) {
-          try {
-            await peerConnection.value.addIceCandidate(new RTCIceCandidate(candidate))
-            console.log('Added ICE candidate')
-          } catch (e) {
-            console.warn('Error adding ICE candidate:', e)
-          }
-        }
-      }
+function handleTrackSubscribed(track, participant) {
+  const container = document.getElementById(participant.sid)
+  if (!container) return
 
-      console.log('Creating answer')
-      const answer = await peerConnection.value.createAnswer()
-      console.log('Setting local description (answer)')
-      await peerConnection.value.setLocalDescription(answer)
-
-      // Wait for ICE gathering to complete or timeout after 5 seconds
-      await Promise.race([
-        new Promise(resolve => {
-          const checkComplete = () => {
-            if (isIceGatheringComplete.value) {
-              resolve()
-            } else {
-              setTimeout(checkComplete, 100)
-            }
-          }
-          checkComplete()
-        }),
-        new Promise(resolve => setTimeout(resolve, 5000))
-      ])
-    } else if (data.type === 'answer') {
-      console.log('Setting remote description (answer)')
-      await peerConnection.value.setRemoteDescription(
-        new RTCSessionDescription({
-          type: data.type,
-          sdp: data.sdp
-        })
-      )
-
-      // Add received ICE candidates
-      if (data.candidates) {
-        console.log('Adding received ICE candidates')
-        for (const candidate of data.candidates) {
-          try {
-            await peerConnection.value.addIceCandidate(new RTCIceCandidate(candidate))
-            console.log('Added ICE candidate')
-          } catch (e) {
-            console.warn('Error adding ICE candidate:', e)
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Error connecting with peer:', err)
-    error.value = `Connection error: ${err.message}`
+  const videoEl = container.querySelector("video")
+  if (track.kind === "video" && videoEl) {
+    track.attach(videoEl)
+  } else if (track.kind === "audio") {
+    track.attach() // This will create and attach to an audio element automatically
   }
 }
 
-async function copyConnectionData() {
-  if (window?.electron?.writeToClipboard) {
-    try {
-      console.log('Connection data to copy:', connectionData.value)
-      const result = await window.electron.writeToClipboard(connectionData.value)
-      if (result.success) {
-        console.log('Successfully copied connection data to clipboard')
-      } else {
-        error.value = 'Failed to copy connection data: ' + (result.error || 'Unknown error')
-      }
-    } catch (err) {
-      console.error('Error copying to clipboard:', err)
-      error.value = 'Failed to copy connection data'
-    }
-  } else {
-    console.error('Clipboard API not available')
-    error.value = 'Failed to copy connection data'
+function handleTrackUnsubscribed(track) {
+  track.detach()
+}
+
+function handleParticipantDisconnected(participant) {
+  console.log("Participant disconnected:", participant.identity)
+  const container = document.getElementById(participant.sid)
+  if (container) {
+    container.remove()
   }
 }
 
 onMounted(() => {
-  console.log('Component mounted, initializing WebRTC...')
-  initializeWebRTC()
+  // Don't auto-initialize video, wait for user action
+  showOverlay.value = true
 })
 
 onUnmounted(() => {
-  // Cleanup
-  localStream.value?.getTracks().forEach(track => track.stop())
-  peerConnection.value?.close()
+  leaveRoom()
 })
-
-function startDrag() {
-  window.electron.startDrag()
-}
-
-function stopDrag() {
-  window.electron.stopDrag()
-}
-
-function openLink(url, event) {
-  event.preventDefault()
-  window.electron.openExternal(url)
-}
-
-function createInitiatorWindow() {
-  if (window?.electron?.createInitiatorWindow) {
-    window.electron.createInitiatorWindow()
-  } else {
-    console.error('Electron API not available')
-  }
-}
 </script>
 
 <template>
-  <div class="wrapper" @mousedown="startDrag" @mouseup="stopDrag" @mouseleave="stopDrag">
-    <div class="bg" @mouseenter="showOverlay = true" @mouseleave="showOverlay = false"></div>
-    <div class="container">
-      <div class="avatar-group">
-        <div class="avatar-container">
-          <video ref="localVideo" class="avatar" autoplay playsinline muted />
+  <div class="app">
+    <div class="avatar-group">
+      <div class="avatar-container">
+        <video
+          ref="localVideo"
+          class="avatar"
+          autoplay
+          playsinline
+          muted
+        ></video>
+      </div>
+    </div>
+
+    <div v-if="error" class="error">{{ error }}</div>
+
+    <div v-if="showOverlay" class="overlay">
+      <div class="overlay-content" v-if="!isConnected">
+        <div class="room-actions">
+          <button
+            @click="createRoom"
+            :disabled="isCreatingRoom"
+            class="action-button"
+          >
+            {{ isCreatingRoom ? "Creating Room..." : "Create New Room" }}
+          </button>
+
+          <div class="divider">or</div>
+
+          <div class="join-room">
+            <input
+              v-model="joinRoomInput"
+              placeholder="Enter room name"
+              class="room-input"
+              :disabled="isJoiningRoom"
+            />
+            <button
+              @click="joinRoom"
+              :disabled="isJoiningRoom || !joinRoomInput"
+              class="action-button"
+            >
+              {{ isJoiningRoom ? "Joining..." : "Join Room" }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
 
-    <div v-if="showOverlay || !isConnected" class="connection-overlay">
-      <div v-if="error" class="error-message">{{ error }}</div>
-      <div v-if="isInitiator" class="connection-box">
-        <button @click="copyConnectionData" class="action-button">Copy Connection Data</button>
-        <div class="connection-data" v-if="connectionData">
-          {{ connectionData }}
-        </div>
-        <div class="status-text">Share this with your peer</div>
-      </div>
-      <div v-else class="connection-box">
-        <button @click="createInitiatorWindow" class="action-button secondary">Create New Call</button>
-        <div class="status-text">or</div>
-        <input v-model="peerData" placeholder="Paste connection data here" class="connection-input" />
-        <button @click="connectWithPeer" class="action-button">Join Call</button>
-      </div>
+    <div v-if="isConnected" class="room-info">
+      <div class="room-name">Room: {{ roomName }}</div>
+      <button @click="leaveRoom" class="leave-button">Leave Room</button>
     </div>
   </div>
 </template>
 
 <style>
-.wrapper {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.bg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  transition: background-color 0.3s ease;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(8px);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.wrapper:hover .bg {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.container {
-  position: relative;
-  padding: 20px;
-  z-index: 1;
+.app {
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  background: transparent;
+  position: relative;
 }
 
 .avatar-group {
   display: flex;
-  gap: min(20px, 4vw);
-  justify-content: center;
-  width: 100%;
-  padding: 0 20px;
-  height: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
 }
 
 .avatar-container {
-  position: relative;
-  width: calc((100vw - 60px) / 2);
-  aspect-ratio: 1/1;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
 }
 
 .avatar {
   width: 100%;
   height: 100%;
-  border-radius: 50%;
-  position: relative;
-  background-color: rgba(0, 0, 0, 0.2);
-  overflow: hidden;
   object-fit: cover;
 }
 
-.armagan {
-  background-image: url('https://s.arm.ag/2019%20bw.jpg');
-}
-
-.dogukan {
-  background-image: url('https://avatars.githubusercontent.com/u/38019578?v=4');
-}
-
-.green-ring {
+.error {
   position: absolute;
-  top: -5px;
-  left: -5px;
-  right: -5px;
-  bottom: -5px;
-  border: 3px solid #4caf50;
-  border-radius: 50%;
-}
-
-.link {
-  text-decoration: none;
-  background: rgba(0, 0, 0, 0.8);
-  padding: 8px 16px;
-  border-radius: 20px;
-  color: white;
-  font-size: 13px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  letter-spacing: -0.1px;
-  white-space: nowrap;
-  position: absolute;
-  bottom: 0;
-}
-
-.link-content {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.github-icon {
-  display: flex;
-  align-items: center;
-}
-
-.link:hover {
-  background: rgba(0, 0, 0, 0.9);
-}
-
-.connection-overlay {
-  position: absolute;
-  top: 50%;
+  bottom: 16px;
   left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.8);
-  padding: 20px;
-  border-radius: 12px;
-  z-index: 10;
+  transform: translateX(-50%);
+  background: rgba(255, 0, 0, 0.8);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.overlay-content {
+  background: rgba(0, 0, 0, 0.8);
+  padding: 24px;
+  border-radius: 12px;
   min-width: 300px;
 }
 
-.connection-box {
+.room-actions {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   align-items: center;
 }
 
-.connection-input {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.3);
-  color: white;
-  font-size: 14px;
-}
-
-.connection-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
-}
-
 .action-button {
-  padding: 8px 16px;
-  border-radius: 6px;
   background: #4caf50;
   color: white;
   border: none;
-  cursor: pointer;
+  padding: 12px 24px;
+  border-radius: 6px;
   font-size: 14px;
-  font-weight: 500;
-  transition: background-color 0.2s ease;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
 }
 
-.action-button:hover {
+.action-button:hover:not(:disabled) {
   background: #45a049;
 }
 
-.status-text {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
+.action-button:disabled {
+  background: #666;
+  cursor: not-allowed;
 }
 
-.action-button.secondary {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.action-button.secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.error-message {
-  color: #ff4444;
-  background: rgba(255, 0, 0, 0.1);
-  padding: 8px 12px;
-  border-radius: 6px;
+.divider {
+  color: rgba(255, 255, 255, 0.6);
   font-size: 14px;
-  margin-bottom: 10px;
 }
 
-.connection-data {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 8px;
+.join-room {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.room-input {
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 14px;
+  width: 100%;
+}
+
+.room-input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.room-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.room-info {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  padding: 8px 16px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.room-name {
+  color: white;
+  font-size: 14px;
+}
+
+.leave-button {
+  background: #ff4444;
+  color: white;
+  border: none;
+  padding: 4px 12px;
   border-radius: 4px;
-  font-family: monospace;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  word-break: break-all;
-  margin: 10px 0;
-  max-height: 100px;
-  overflow-y: auto;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.leave-button:hover {
+  background: #ff3333;
 }
 </style>

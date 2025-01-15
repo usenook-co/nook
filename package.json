@@ -36,12 +36,16 @@
   "dependencies": {
     "@electron/remote": "^2.1.2",
     "buffer": "^6.0.3",
+    "cors": "^2.8.5",
     "crypto-browserify": "^3.12.1",
     "electron-squirrel-startup": "^1.0.1",
+    "express": "^4.18.2",
     "nan": "^2.22.0",
     "process": "^0.11.10",
     "simple-peer": "^9.11.1",
     "stream-browserify": "^3.0.0",
+    "twilio": "^4.20.0",
+    "twilio-video": "^2.29.0",
     "vue": "^3.5.13"
   }
 }
