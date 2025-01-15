@@ -36,7 +36,10 @@ async function getBestVideoDevice() {
 
   // If no external camera, prefer back camera on mobile devices
   const backCamera = videoDevices.find(
-    device => device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('rear')
+    device =>
+      device.label.toLowerCase().includes('back') ||
+      device.label.toLowerCase().includes('rear') ||
+      device.label.toLowerCase().includes('camm')
   )
 
   if (backCamera) {
