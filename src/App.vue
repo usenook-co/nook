@@ -12,6 +12,8 @@ const isConnected = ref(false)
 const showOverlay = ref(false)
 const isInitiator = ref(window.location.hash === '#init')
 const error = ref('')
+const iceCandidates = ref([])
+const isIceGatheringComplete = ref(false)
 
 async function getBestVideoDevice() {
   const devices = await navigator.mediaDevices.enumerateDevices()
@@ -116,11 +118,28 @@ async function initializeWebRTC() {
     peerConnection.value.onicecandidate = event => {
       if (event.candidate) {
         console.log('New ICE candidate:', event.candidate.type)
+        iceCandidates.value.push(event.candidate)
+
+        // If we're the initiator, include the candidate in the connection data
+        if (isInitiator.value) {
+          connectionData.value = JSON.stringify({
+            type: peerConnection.value.localDescription.type,
+            sdp: peerConnection.value.localDescription.sdp,
+            candidates: iceCandidates.value
+          })
+        }
       } else {
         console.log('ICE gathering completed')
+        isIceGatheringComplete.value = true
         const desc = peerConnection.value.localDescription
         console.log('Final local description:', desc)
-        connectionData.value = JSON.stringify(desc)
+
+        // Final connection data with all candidates
+        connectionData.value = JSON.stringify({
+          type: desc.type,
+          sdp: desc.sdp,
+          candidates: iceCandidates.value
+        })
       }
     }
 
@@ -180,14 +199,66 @@ async function connectWithPeer() {
 
     if (data.type === 'offer') {
       console.log('Setting remote description (offer)')
-      await peerConnection.value.setRemoteDescription(new RTCSessionDescription(data))
+      await peerConnection.value.setRemoteDescription(
+        new RTCSessionDescription({
+          type: data.type,
+          sdp: data.sdp
+        })
+      )
+
+      // Add received ICE candidates
+      if (data.candidates) {
+        console.log('Adding received ICE candidates')
+        for (const candidate of data.candidates) {
+          try {
+            await peerConnection.value.addIceCandidate(new RTCIceCandidate(candidate))
+            console.log('Added ICE candidate')
+          } catch (e) {
+            console.warn('Error adding ICE candidate:', e)
+          }
+        }
+      }
+
       console.log('Creating answer')
       const answer = await peerConnection.value.createAnswer()
       console.log('Setting local description (answer)')
       await peerConnection.value.setLocalDescription(answer)
+
+      // Wait for ICE gathering to complete or timeout after 5 seconds
+      await Promise.race([
+        new Promise(resolve => {
+          const checkComplete = () => {
+            if (isIceGatheringComplete.value) {
+              resolve()
+            } else {
+              setTimeout(checkComplete, 100)
+            }
+          }
+          checkComplete()
+        }),
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ])
     } else if (data.type === 'answer') {
       console.log('Setting remote description (answer)')
-      await peerConnection.value.setRemoteDescription(new RTCSessionDescription(data))
+      await peerConnection.value.setRemoteDescription(
+        new RTCSessionDescription({
+          type: data.type,
+          sdp: data.sdp
+        })
+      )
+
+      // Add received ICE candidates
+      if (data.candidates) {
+        console.log('Adding received ICE candidates')
+        for (const candidate of data.candidates) {
+          try {
+            await peerConnection.value.addIceCandidate(new RTCIceCandidate(candidate))
+            console.log('Added ICE candidate')
+          } catch (e) {
+            console.warn('Error adding ICE candidate:', e)
+          }
+        }
+      }
     }
   } catch (err) {
     console.error('Error connecting with peer:', err)
