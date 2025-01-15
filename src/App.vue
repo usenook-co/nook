@@ -13,6 +13,7 @@ const error = ref('')
 const roomName = ref('')
 const identity = ref(`user-${Math.random().toString(36).substring(7)}`)
 const isCreatingRoom = ref(false)
+const participants = ref(new Map())
 
 // Room joining state
 const joinRoomInput = ref('')
@@ -221,7 +222,8 @@ async function initializeVideo() {
 
 function handleParticipantConnected(participant) {
   console.log('Setting up participant:', participant.identity)
-  participantCount.value = room.value.participants.size + 1 // +1 for local participant
+  participants.value.set(participant.sid, participant)
+  participantCount.value = participants.value.size + 1 // +1 for local participant
 
   const container = document.createElement('div')
   container.id = participant.sid
@@ -270,7 +272,8 @@ function handleTrackUnsubscribed(track) {
 
 function handleParticipantDisconnected(participant) {
   console.log('Participant disconnected:', participant.identity)
-  participantCount.value = room.value.participants.size + 1 // +1 for local participant
+  participants.value.delete(participant.sid)
+  participantCount.value = participants.value.size + 1 // +1 for local participant
 
   const container = document.getElementById(participant.sid)
   if (container) {
