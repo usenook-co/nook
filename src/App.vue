@@ -57,17 +57,26 @@ const config = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    // Add a free TURN server - you might want to replace this with your own TURN server in production
     {
       urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
       username: 'openrelayproject',
       credential: 'openrelayproject'
     }
   ],
   iceCandidatePoolSize: 10,
-  iceTransportPolicy: 'all'
+  iceTransportPolicy: 'relay',
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 }
 
 async function initializeWebRTC() {
