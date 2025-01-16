@@ -25,6 +25,7 @@ const isJoiningRoom = ref(false)
 const participantCount = ref(1)
 const wrapper = ref(null)
 const localStream = ref(null)
+const hasRemoteScreenShare = ref(false)
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -305,18 +306,26 @@ function handleTrackSubscribed(track, participant) {
 
   // Check if this is a screen share track
   const isScreenShare = track.name === 'screen'
+  console.log('Track subscribed:', { isScreenShare, name: track.name, kind: track.kind })
 
   if (isScreenShare) {
-    // Create screen share container
-    const container = document.createElement('div')
-    container.className = 'screen-share-container'
-    container.id = `screen-${participant.sid}`
+    hasRemoteScreenShare.value = true
+    // Create screen share container as background
     const video = document.createElement('video')
+    video.id = `screen-${participant.sid}`
     video.autoplay = true
     video.playsInline = true
-    container.appendChild(video)
-    document.querySelector('.avatar-group').appendChild(container)
+    video.className = 'screen-share-background'
+    document.querySelector('.bg').appendChild(video)
     track.attach(video)
+
+    // Set aspect ratio based on screen share dimensions
+    video.addEventListener('loadedmetadata', () => {
+      const aspectRatio = video.videoWidth / video.videoHeight
+      if (window?.electron?.setAspectRatio) {
+        window.electron.setAspectRatio(aspectRatio)
+      }
+    })
   } else {
     const container = document.getElementById(participant.sid)
     if (!container) return
@@ -330,9 +339,14 @@ function handleTrackSubscribed(track, participant) {
 
 function handleTrackUnsubscribed(track, participant) {
   if (track.kind === 'video' && track.name === 'screen') {
-    const container = document.getElementById(`screen-${participant.sid}`)
-    if (container) {
-      container.remove()
+    hasRemoteScreenShare.value = false
+    const video = document.getElementById(`screen-${participant.sid}`)
+    if (video) {
+      video.remove()
+    }
+    // Reset aspect ratio based on participant count
+    if (window?.electron?.setAspectRatio) {
+      window.electron.setAspectRatio(Math.max(participantCount.value, 2))
     }
   }
   track.detach()
@@ -380,12 +394,6 @@ async function toggleScreenShare() {
         twilioScreenTrack = null
       }
       isScreenSharing.value = false
-
-      // Remove screen share container
-      const container = document.querySelector('.screen-share-container')
-      if (container) {
-        container.remove()
-      }
     } else {
       // Get available screen sources
       const sources = await window.electron.getScreenSources()
@@ -412,17 +420,7 @@ async function toggleScreenShare() {
 
       const videoTrack = stream.getVideoTracks()[0]
 
-      // Create and add screen share container first
-      const container = document.createElement('div')
-      container.className = 'screen-share-container'
-      const video = document.createElement('video')
-      video.autoplay = true
-      video.playsInline = true
-      video.srcObject = new MediaStream([videoTrack])
-      container.appendChild(video)
-      document.querySelector('.avatar-group').appendChild(container)
-
-      // Create Twilio track after UI is set up
+      // Create Twilio track
       twilioScreenTrack = new Video.LocalVideoTrack(videoTrack, {
         name: 'screen',
         logLevel: 'off'
@@ -451,6 +449,45 @@ async function toggleScreenShare() {
     error.value = 'Failed to toggle screen sharing: ' + err.message
   }
 }
+
+watch(hasRemoteScreenShare, async hasScreen => {
+  // Update video sizes based on screen share state
+  const avatarContainers = document.querySelectorAll('.avatar-container')
+  avatarContainers.forEach(container => {
+    container.style.width = hasScreen ? '160px' : '80vh'
+    container.style.height = hasScreen ? '160px' : '80vh'
+  })
+
+  // Update container alignment
+  const container = document.querySelector('.container')
+  if (container) {
+    container.style.alignItems = hasScreen ? 'flex-start' : 'center'
+  }
+
+  // Toggle always-on-top based on screen share state
+  if (window?.electron?.setAlwaysOnTop) {
+    window.electron.setAlwaysOnTop(!hasScreen)
+  }
+
+  // Update window size based on screen share state
+  if (hasScreen) {
+    const remote = require('@electron/remote')
+    const primaryDisplay = remote.screen.getPrimaryDisplay()
+    const { workArea } = primaryDisplay
+    const newWidth = Math.round(workArea.width * 0.8)
+    const newHeight = Math.round(workArea.height * 0.8)
+
+    console.log('Resizing window to:', { newWidth, newHeight, workArea })
+
+    if (window?.electron?.setWindowSize) {
+      window.electron.setWindowSize(newWidth, newHeight, true)
+    }
+  } else {
+    if (window?.electron?.setWindowSize) {
+      window.electron.setWindowSize(600, 300, true)
+    }
+  }
+})
 
 onMounted(() => {
   // Don't auto-initialize video, wait for user action
@@ -550,11 +587,11 @@ onUnmounted(() => {
   transition: background-color 0.3s ease;
   backdrop-filter: blur(8px);
   border-radius: 12px;
-  /* border: 1px solid rgba(255, 255, 255, 0.1); */
+  overflow: hidden;
 }
 
 .wrapper:hover .bg {
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .container {
@@ -565,6 +602,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.3s ease;
 }
 
 .avatar-group {
@@ -584,6 +622,7 @@ onUnmounted(() => {
   overflow: hidden;
   background: #000;
   flex-shrink: 0;
+  transition: all 0.3s ease;
 }
 
 .avatar {
@@ -743,22 +782,17 @@ onUnmounted(() => {
   background: #ff8f00;
 }
 
-.screen-share-container {
+.screen-share-background {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 240px;
-  height: 135px;
-  background: #000;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  z-index: 10;
-}
-
-.screen-share-container video {
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
+  z-index: -1;
+}
+
+.screen-share-container {
+  display: none;
 }
 </style>

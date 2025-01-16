@@ -153,7 +153,7 @@ function createWindow(hash = '') {
     callback(true)
   })
 
-  // Enable remote module for this window
+  // Enable remote module access for this window
   remote.enable(win.webContents)
 
   const mouseTracker = spawn('./mouse_tracker')
@@ -285,5 +285,13 @@ ipcMain.handle('setAspectRatio', async (event, ratio) => {
     }
 
     animateWindow(window, currentBounds, endBounds)
+  }
+})
+
+// Add this with other IPC handlers
+ipcMain.handle('setAlwaysOnTop', async (event, value) => {
+  const window = BrowserWindow.fromWebContents(event.sender)
+  if (window) {
+    window.setAlwaysOnTop(value)
   }
 })

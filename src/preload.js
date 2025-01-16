@@ -16,5 +16,14 @@ contextBridge.exposeInMainWorld('electron', {
   setWindowSize: (width, height, maintainCenter = false) =>
     ipcRenderer.invoke('setWindowSize', width, height, maintainCenter),
   setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio),
-  getScreenSources: () => desktopCapturer.getSources({ types: ['window', 'screen'] })
+  setAlwaysOnTop: value => ipcRenderer.invoke('setAlwaysOnTop', value),
+  // Fix screen capture access
+  getScreenSources: async () => {
+    try {
+      return await desktopCapturer.getSources({ types: ['screen', 'window'] })
+    } catch (err) {
+      console.error('Error getting screen sources:', err)
+      throw err
+    }
+  }
 })
