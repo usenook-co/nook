@@ -23,7 +23,13 @@ This app is built with:
 
 - Node.js (v18 or higher recommended)
 - npm
-- Make and Clang (for building the native mouse tracking module)
+- For Windows:
+  - MinGW-w64 (via [MSYS2](https://www.msys2.org/) recommended)
+  - Make sure to add MinGW to your PATH (typically `C:\msys64\mingw64\bin`)
+- For macOS:
+  - Xcode Command Line Tools (`xcode-select --install`)
+- For Linux:
+  - gcc and make (`sudo apt-get install build-essential`)
 
 ### Setup
 
@@ -34,7 +40,13 @@ git clone https://github.com/usenook-co/nook.git
 cd nook
 ```
 
-2. Install dependencies:
+2. If you're on Windows, install required MSYS2 packages:
+```bash
+# Open MSYS2 terminal and run:
+pacman -S mingw-w64-x86_64-gcc make
+```
+
+3. Install dependencies:
 
 ```bash
 npm install
@@ -42,7 +54,7 @@ npm install
 
 This will also automatically build the native mouse tracking module.
 
-3. Start the development server:
+4. Start the development server:
 
 ```bash
 npm start
