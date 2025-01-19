@@ -306,7 +306,11 @@ function handleTrackSubscribed(track, participant) {
 
   // Check if this is a screen share track
   const isScreenShare = track.name === 'screen'
-  console.log('Track subscribed:', { isScreenShare, name: track.name, kind: track.kind })
+  console.log('Track subscribed:', {
+    isScreenShare,
+    name: track.name,
+    kind: track.kind
+  })
 
   if (isScreenShare) {
     hasRemoteScreenShare.value = true
