@@ -3,6 +3,7 @@ import './polyfills'
 import './reset.css'
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import Video from 'twilio-video'
+import GifSelector from './components/GifSelector.vue'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
@@ -26,6 +27,8 @@ const participantCount = ref(1)
 const wrapper = ref(null)
 const localStream = ref(null)
 const hasRemoteScreenShare = ref(false)
+const showGifSelector = ref(false)
+const selectedGif = ref(null)
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -502,6 +505,19 @@ onMounted(() => {
 onUnmounted(() => {
   leaveRoom()
 })
+
+function handleAvatarClick() {
+  if (selectedGif.value) {
+    selectedGif.value = null
+  } else {
+    showGifSelector.value = true
+  }
+}
+
+function handleGifSelect(gifUrl) {
+  selectedGif.value = gifUrl
+  showGifSelector.value = false
+}
 </script>
 
 <template>
@@ -510,8 +526,11 @@ onUnmounted(() => {
       <div class="bg" @mouseenter="showOverlay = true" @mouseleave="showOverlay = false"></div>
       <div class="container">
         <div class="avatar-group">
-          <div class="avatar-container">
-            <video ref="localVideo" class="avatar" autoplay playsinline muted></video>
+          <div class="avatar-container local-avatar" @click="handleAvatarClick">
+            <video v-if="!selectedGif" ref="localVideo" class="avatar" autoplay playsinline muted></video>
+            <img v-else :src="selectedGif" class="avatar gif-avatar" alt="Selected GIF" />
+            <div v-if="selectedGif" class="remove-gif-indicator">×</div>
+            <GifSelector @select="handleGifSelect" @close="showGifSelector = false" />
           </div>
         </div>
       </div>
@@ -795,5 +814,36 @@ onUnmounted(() => {
 
 .screen-share-container {
   display: none;
+}
+
+.local-avatar {
+  position: relative;
+  cursor: pointer;
+}
+
+.gif-avatar {
+  object-fit: cover;
+}
+
+.remove-gif-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.local-avatar:hover .remove-gif-indicator {
+  opacity: 1;
 }
 </style>
