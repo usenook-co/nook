@@ -14,6 +14,10 @@ let isDragging = false
 let lastMousePos = { x: 0, y: 0 }
 let mainWindow = null
 let windowPos = { x: 0, y: 0 }
+let gifSelectorWindow = null
+
+// Update the GIF selector preload path definition to make sure it's resolved properly
+const gifSelectorPreloadPath = path.join(__dirname, 'gifSelectorPreload.js')
 
 ipcMain.on('startDrag', () => {
   isDragging = true
@@ -110,27 +114,8 @@ function createWindow(hash = '') {
     }
   })
 
-  // Capture all console messages from the renderer process
-  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    const levels = ['log', 'warn', 'error', 'info', 'debug']
-    const prefix = sourceId ? `[${sourceId.split('/').pop()}:${line}]` : '[Renderer]'
-    switch (levels[level] || 'log') {
-      case 'warn':
-        console.warn(prefix, message)
-        break
-      case 'error':
-        console.error(prefix, message)
-        break
-      case 'info':
-        console.info(prefix, message)
-        break
-      case 'debug':
-        console.debug(prefix, message)
-        break
-      default:
-        console.log(prefix, message)
-    }
-  })
+  // Setup console logging for this window
+  setupWindowLogs(win, 'MainWindow')
 
   // Set 2:1 aspect ratio immediately after creation
   win.setAspectRatio(2)
@@ -182,25 +167,50 @@ function createWindow(hash = '') {
 
   mouseTracker.stdout.on('data', data => {
     try {
-      const [eventType, x, y] = data.toString().trim().split(',')
-      const mouseX = parseFloat(x)
-      const mouseY = parseFloat(y)
+      // Convert buffer to string and clean up whitespace
+      const dataStr = data.toString().trim()
 
-      if (!isNaN(mouseX) && !isNaN(mouseY)) {
-        if (isDragging && (eventType === 'move' || eventType === 'drag')) {
-          const deltaX = mouseX - lastMousePos.x
-          const deltaY = mouseY - lastMousePos.y
+      // Skip empty data
+      if (!dataStr) return
 
-          windowPos.x += deltaX
-          windowPos.y += deltaY
-          win.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
-        }
-
-        lastMousePos = { x: mouseX, y: mouseY }
+      // Split the data and validate format
+      const parts = dataStr.split(',')
+      if (parts.length !== 3) {
+        console.warn('Invalid mouse tracker data format:', dataStr)
+        return
       }
+
+      const [eventType, xStr, yStr] = parts
+      const mouseX = parseFloat(xStr)
+      const mouseY = parseFloat(yStr)
+
+      // Validate numbers
+      if (isNaN(mouseX) || isNaN(mouseY)) {
+        console.warn('Invalid mouse coordinates:', xStr, yStr)
+        return
+      }
+
+      if (isDragging && (eventType === 'move' || eventType === 'drag')) {
+        const deltaX = mouseX - lastMousePos.x
+        const deltaY = mouseY - lastMousePos.y
+
+        windowPos.x += deltaX
+        windowPos.y += deltaY
+        win.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
+      }
+
+      lastMousePos = { x: mouseX, y: mouseY }
     } catch (error) {
-      console.error('Error processing mouse data:', error)
+      console.error('Error processing mouse data:', error.message, '\nRaw data:', data.toString())
     }
+  })
+
+  mouseTracker.stderr.on('data', data => {
+    console.error('Mouse tracker error:', data.toString())
+  })
+
+  mouseTracker.on('error', error => {
+    console.error('Failed to start mouse tracker:', error)
   })
 
   win.on('closed', () => {
@@ -317,3 +327,173 @@ ipcMain.handle('setAlwaysOnTop', async (event, value) => {
     window.setAlwaysOnTop(value)
   }
 })
+
+// Simplify the openGifSelector handler
+ipcMain.handle('openGifSelector', async event => {
+  console.log('openGifSelector called')
+
+  // If window already exists, just focus it and return
+  if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+    gifSelectorWindow.focus()
+    return true
+  }
+
+  try {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender)
+    const parentBounds = parentWindow.getBounds()
+
+    // Create the GIF selector window with simpler configuration
+    gifSelectorWindow = new BrowserWindow({
+      width: 400,
+      height: 600,
+      frame: false,
+      backgroundColor: '#121212',
+      parent: parentWindow,
+      modal: false,
+      webPreferences: {
+        preload: gifSelectorPreloadPath,
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    })
+
+    // Center on parent
+    const childBounds = gifSelectorWindow.getBounds()
+    gifSelectorWindow.setBounds({
+      x: Math.floor(parentBounds.x + (parentBounds.width - childBounds.width) / 2),
+      y: Math.floor(parentBounds.y + (parentBounds.height - childBounds.height) / 2),
+      width: childBounds.width,
+      height: childBounds.height
+    })
+
+    // Setup console logging
+    setupWindowLogs(gifSelectorWindow, 'GifSelector')
+
+    // Log the resolved preload path
+    console.log('Using GIF selector preload path:', gifSelectorPreloadPath)
+
+    // Determine URL based on environment
+    const url = MAIN_WINDOW_VITE_DEV_SERVER_URL
+      ? MAIN_WINDOW_VITE_DEV_SERVER_URL + '#gif-selector'
+      : path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html#gif-selector`)
+
+    console.log('Loading GIF selector URL:', url)
+
+    // Load the URL more simply
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      gifSelectorWindow.loadURL(url)
+    } else {
+      gifSelectorWindow.loadFile(url.split('#')[0], { hash: 'gif-selector' })
+    }
+
+    // Show window when ready
+    gifSelectorWindow.once('ready-to-show', () => {
+      if (!gifSelectorWindow.isDestroyed()) {
+        gifSelectorWindow.show()
+      }
+    })
+
+    // Close when parent is closed
+    parentWindow.once('closed', () => {
+      if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+        gifSelectorWindow.close()
+        gifSelectorWindow = null
+      }
+    })
+
+    // Add blur event to close window when clicking outside
+    gifSelectorWindow.on('blur', () => {
+      if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+        gifSelectorWindow.close()
+        gifSelectorWindow = null
+      }
+    })
+
+    // Open DevTools in development mode
+    if (process.env.NODE_ENV === 'development') {
+      gifSelectorWindow.webContents.openDevTools({ mode: 'detach' })
+    }
+
+    return true
+  } catch (err) {
+    console.error('Error opening GIF selector:', err)
+    return false
+  }
+})
+
+// Simplify the closeGifSelector handler
+ipcMain.handle('closeGifSelector', (event, gifUrl) => {
+  console.log('closeGifSelector called', gifUrl ? 'with GIF URL' : '')
+
+  // If a GIF URL was provided, notify the main window
+  if (gifUrl) {
+    try {
+      const mainWindow = BrowserWindow.getAllWindows().find(win => win !== gifSelectorWindow && !win.isDestroyed())
+      if (mainWindow) {
+        mainWindow.webContents.send('gifSelected', gifUrl)
+      }
+    } catch (err) {
+      console.error('Error sending selected GIF to main window:', err)
+    }
+  }
+
+  // Close the GIF selector window
+  if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+    gifSelectorWindow.close()
+    gifSelectorWindow = null
+  }
+  return true
+})
+
+// Simplify the selectGif handler
+ipcMain.handle('selectGif', (event, gifUrl) => {
+  console.log('selectGif called with URL:', gifUrl)
+  try {
+    // Find the main window (not the GIF selector)
+    const mainWindow = BrowserWindow.getAllWindows().find(win => win !== gifSelectorWindow && !win.isDestroyed())
+
+    if (mainWindow) {
+      mainWindow.webContents.send('gifSelected', gifUrl)
+
+      // Close the GIF selector window
+      if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+        gifSelectorWindow.close()
+        gifSelectorWindow = null
+      }
+
+      return true
+    } else {
+      console.error('No main window found for GIF selection')
+      return false
+    }
+  } catch (err) {
+    console.error('Error in selectGif handler:', err)
+    return false
+  }
+})
+
+// Add this function near the top of the file, after imports
+function setupWindowLogs(window, windowName) {
+  window.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const levels = ['log', 'warn', 'error', 'info', 'debug']
+    const prefix = `[${windowName}]`
+    const levelName = levels[level] || 'log'
+
+    switch (levelName) {
+      case 'warn':
+        console.warn(prefix, message)
+        break
+      case 'error':
+        console.error(prefix, message)
+        break
+      case 'info':
+        console.info(prefix, message)
+        break
+      case 'debug':
+        console.debug(prefix, message)
+        break
+      default:
+        console.log(prefix, message)
+    }
+  })
+}

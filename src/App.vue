@@ -1,14 +1,14 @@
 <script setup>
 import './polyfills'
 import './reset.css'
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, provide } from 'vue'
 import Video from 'twilio-video'
-import GifSelector from './components/GifSelector.vue'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
 let twilioLocalParticipant = null
 let twilioScreenTrack = null
+let twilioDataTrack = null // Add this for GIF sharing
 
 // Vue refs for UI state only
 const localVideo = ref(null)
@@ -19,15 +19,14 @@ const roomName = ref('')
 const identity = ref(`user-${Math.random().toString(36).substring(7)}`)
 const isCreatingRoom = ref(false)
 const participants = ref(new Map())
+const participantGifs = ref(new Map()) // Add this to store GIFs for each participant
 const isScreenSharing = ref(false)
-const screenContainer = ref(null)
 const joinRoomInput = ref('')
 const isJoiningRoom = ref(false)
 const participantCount = ref(1)
 const wrapper = ref(null)
 const localStream = ref(null)
 const hasRemoteScreenShare = ref(false)
-const showGifSelector = ref(false)
 const selectedGif = ref(null)
 
 function startDrag() {
@@ -92,6 +91,14 @@ async function joinRoom() {
 async function leaveRoom() {
   if (isScreenSharing.value) {
     if (twilioScreenTrack) {
+      try {
+        if (twilioLocalParticipant) {
+          await twilioLocalParticipant.unpublishTrack(twilioScreenTrack)
+        }
+      } catch (e) {
+        console.error('Error unpublishing track:', e)
+      }
+
       twilioScreenTrack.stop()
       twilioScreenTrack = null
     }
@@ -113,14 +120,16 @@ async function leaveRoom() {
   participants.value.clear()
   participantCount.value = 1
 
-  const avatarGroup = document.querySelector('.avatar-group')
-  const containers = avatarGroup.querySelectorAll('.avatar-container:not(:first-child)')
-  containers.forEach(container => container.remove())
+  if (twilioDataTrack) {
+    twilioDataTrack.removeAllListeners()
+    twilioDataTrack = null
+  }
 
   isConnected.value = false
   showOverlay.value = true
   roomName.value = ''
   joinRoomInput.value = ''
+  participantGifs.value.clear() // Clear participant GIFs
 }
 
 async function getBestVideoDevice() {
@@ -187,6 +196,19 @@ async function getAccessToken() {
   }
 }
 
+async function createAndPublishDataTrack() {
+  try {
+    twilioDataTrack = new Video.LocalDataTrack()
+
+    if (twilioLocalParticipant) {
+      await twilioLocalParticipant.publishTrack(twilioDataTrack)
+      console.log('Data track published successfully')
+    }
+  } catch (err) {
+    console.error('Error publishing data track:', err)
+  }
+}
+
 async function initializeVideo() {
   try {
     console.log('Initializing video...')
@@ -225,6 +247,9 @@ async function initializeVideo() {
     twilioRoom = await Video.connect(token, roomOptions)
     twilioLocalParticipant = twilioRoom.localParticipant
 
+    // Create and publish data track for GIF sharing
+    await createAndPublishDataTrack()
+
     // Set up room event listeners
     twilioRoom.on('participantConnected', participant => {
       console.log('A remote participant connected:', participant)
@@ -261,22 +286,14 @@ function handleParticipantConnected(participant) {
   participants.value.set(participant.sid, participant)
   participantCount.value = participants.value.size + 1 // +1 for local participant
 
-  const container = document.createElement('div')
-  container.id = participant.sid
-  container.className = 'avatar-container'
-
-  const videoEl = document.createElement('video')
-  videoEl.className = 'avatar'
-  videoEl.autoplay = true
-  videoEl.playsInline = true
-
-  container.appendChild(videoEl)
-  document.querySelector('.avatar-group').appendChild(container)
-
   // Handle participant's existing tracks
   Array.from(participant.tracks.values()).forEach(publication => {
-    if (publication.track && publication.kind === 'video') {
-      handleTrackSubscribed(publication.track, participant)
+    if (publication.track) {
+      if (publication.kind === 'video') {
+        handleTrackSubscribed(publication.track, participant)
+      } else if (publication.kind === 'data') {
+        handleDataTrackSubscribed(publication.track, participant)
+      }
     }
   })
 
@@ -287,6 +304,8 @@ function handleParticipantConnected(participant) {
     } else if (track.kind === 'audio') {
       // Just attach audio without visual element
       track.attach()
+    } else if (track.kind === 'data') {
+      handleDataTrackSubscribed(track, participant)
     }
   })
 
@@ -331,20 +350,40 @@ function handleTrackSubscribed(track, participant) {
       }
     })
   } else {
-    const container = document.getElementById(participant.sid)
-    if (!container) return
+    // We need to wait for Vue to render the element
+    // Use nextTick or setTimeout to ensure the element exists
+    setTimeout(() => {
+      const container = document.getElementById(participant.sid)
+      if (!container) return
 
-    const videoEl = container.querySelector('video')
-    if (videoEl) {
-      track.attach(videoEl)
-    }
+      const videoEl = container.querySelector('video')
+      if (videoEl) {
+        track.attach(videoEl)
+      }
+    }, 100)
   }
 }
 
-function handleTrackUnsubscribed(track, participant) {
+function handleDataTrackSubscribed(track, participant) {
+  console.log('Data track subscribed from participant:', participant.identity)
+
+  track.on('message', data => {
+    try {
+      const message = JSON.parse(data)
+      if (message.type === 'gif') {
+        console.log('Received GIF from participant:', participant.identity, message.url)
+        participantGifs.value.set(participant.sid, message.url)
+      }
+    } catch (err) {
+      console.error('Error parsing data track message:', err)
+    }
+  })
+}
+
+function handleTrackUnsubscribed(track) {
   if (track.kind === 'video' && track.name === 'screen') {
     hasRemoteScreenShare.value = false
-    const video = document.getElementById(`screen-${participant.sid}`)
+    const video = document.getElementById(`screen-${track.sid}`)
     if (video) {
       video.remove()
     }
@@ -353,7 +392,11 @@ function handleTrackUnsubscribed(track, participant) {
       window.electron.setAspectRatio(Math.max(participantCount.value, 2))
     }
   }
-  track.detach()
+
+  // Only call detach for media tracks (audio and video)
+  if (track.kind === 'audio' || track.kind === 'video') {
+    track.detach()
+  }
 }
 
 function handleParticipantDisconnected(participant) {
@@ -365,12 +408,8 @@ function handleParticipantDisconnected(participant) {
   }
 
   participants.value.delete(participant.sid)
+  participantGifs.value.delete(participant.sid) // Remove participant's GIF
   participantCount.value = participants.value.size + 1 // +1 for local participant
-
-  const container = document.getElementById(participant.sid)
-  if (container) {
-    container.remove()
-  }
 }
 
 function updateWindowSize(count) {
@@ -493,6 +532,16 @@ watch(hasRemoteScreenShare, async hasScreen => {
   }
 })
 
+function handleDirectGifSelection(gifUrl) {
+  console.log('Received direct GIF selection:', gifUrl)
+  selectedGif.value = gifUrl
+
+  // Share the GIF with other participants
+  if (twilioDataTrack) {
+    twilioDataTrack.send(JSON.stringify({ type: 'gif', url: gifUrl }))
+  }
+}
+
 onMounted(() => {
   // Don't auto-initialize video, wait for user action
   showOverlay.value = true
@@ -500,23 +549,64 @@ onMounted(() => {
   if (window?.electron?.setAspectRatio) {
     window.electron.setAspectRatio(2)
   }
+
+  // Add window message listener for direct GIF selection
+  window.addEventListener('message', event => {
+    if (event.data && event.data.type === 'gifSelected') {
+      console.log('Received GIF via postMessage:', event.data.gifUrl)
+      handleDirectGifSelection(event.data.gifUrl)
+    }
+  })
+
+  // Listen for GIF selection from the separate window
+  window.electron.onGifSelected(gifUrl => {
+    selectedGif.value = gifUrl
+  })
 })
 
 onUnmounted(() => {
+  // Remove message listener
+  window.removeEventListener('message', event => {
+    if (event.data && event.data.type === 'gifSelected') {
+      handleDirectGifSelection(event.data.gifUrl)
+    }
+  })
+
   leaveRoom()
 })
 
 function handleAvatarClick() {
   if (selectedGif.value) {
     selectedGif.value = null
+    // Send null GIF to other participants
+    if (twilioDataTrack) {
+      twilioDataTrack.send(JSON.stringify({ type: 'gif', url: null }))
+    }
   } else {
-    showGifSelector.value = true
+    openGifSelectorWindow()
   }
 }
 
-function handleGifSelect(gifUrl) {
-  selectedGif.value = gifUrl
-  showGifSelector.value = false
+function openGifSelectorWindow() {
+  const url = window.location.href.split('#')[0] + '#gif-selector'
+  const width = 400
+  const height = 600
+  const left = (window.screen.width - width) / 2
+  const top = (window.screen.height - height) / 2
+
+  const features = `width=${width},height=${height},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no`
+
+  const gifWindow = window.open(url, 'gifSelector', features)
+
+  if (gifWindow) {
+    console.log('GIF selector window opened directly')
+  } else {
+    console.error('Failed to open GIF selector window')
+    // Fallback to electron method if available
+    if (window.electron?.openGifSelector) {
+      window.electron.openGifSelector()
+    }
+  }
 }
 </script>
 
@@ -526,11 +616,22 @@ function handleGifSelect(gifUrl) {
       <div class="bg" @mouseenter="showOverlay = true" @mouseleave="showOverlay = false"></div>
       <div class="container">
         <div class="avatar-group">
+          <!-- Local participant -->
           <div class="avatar-container local-avatar" @click="handleAvatarClick">
-            <video v-if="!selectedGif" ref="localVideo" class="avatar" autoplay playsinline muted></video>
-            <img v-else :src="selectedGif" class="avatar gif-avatar" alt="Selected GIF" />
-            <div v-if="selectedGif" class="remove-gif-indicator">×</div>
-            <GifSelector @select="handleGifSelect" @close="showGifSelector = false" />
+            <video v-show="!selectedGif" ref="localVideo" class="avatar" autoplay playsinline muted></video>
+            <img v-show="selectedGif" :src="selectedGif" class="avatar gif-avatar" alt="Selected GIF" />
+            <div v-show="selectedGif" class="remove-gif-indicator">×</div>
+          </div>
+
+          <!-- Remote participants -->
+          <div v-for="[sid, participant] in participants" :key="sid" :id="sid" class="avatar-container">
+            <video v-show="!participantGifs.get(sid)" class="avatar" autoplay playsinline></video>
+            <img
+              v-show="participantGifs.get(sid)"
+              :src="participantGifs.get(sid)"
+              class="avatar gif-avatar"
+              alt="Participant GIF"
+            />
           </div>
         </div>
       </div>
