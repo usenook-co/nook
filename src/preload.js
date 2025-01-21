@@ -4,7 +4,6 @@
 const { contextBridge, ipcRenderer, shell } = require('electron')
 const { desktopCapturer } = require('@electron/remote')
 
-// Expose protected methods that allow the renderer process to use
 contextBridge.exposeInMainWorld('electron', {
   startDrag: () => ipcRenderer.send('startDrag'),
   stopDrag: () => ipcRenderer.send('stopDrag'),
@@ -17,7 +16,6 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.invoke('setWindowSize', width, height, maintainCenter),
   setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio),
   setAlwaysOnTop: value => ipcRenderer.invoke('setAlwaysOnTop', value),
-  // Fix screen capture access
   getScreenSources: async () => {
     try {
       return await desktopCapturer.getSources({ types: ['screen', 'window'] })
@@ -25,5 +23,17 @@ contextBridge.exposeInMainWorld('electron', {
       console.error('Error getting screen sources:', err)
       throw err
     }
+  },
+  openGifSelector: () => ipcRenderer.invoke('openGifSelector'),
+  onGifSelected: callback => {
+    // Remove any existing listeners to avoid duplicates
+    ipcRenderer.removeAllListeners('gifSelected')
+    // Add the new callback
+    ipcRenderer.on('gifSelected', (event, gifUrl) => {
+      console.log('GIF selected event received in preload:', gifUrl)
+      callback(gifUrl)
+    })
   }
 })
+
+console.log('Main window preload script completed')
