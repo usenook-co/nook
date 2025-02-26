@@ -58,7 +58,7 @@ This will also automatically build the native mouse tracking module.
 3. Start the token server for twilio:
 
 ```bash
-npm start-token-server
+npm run start-token-server
 ```
 
 4. Start ngrok reverse proxy tunnel with your credentials installed from the instructions:
