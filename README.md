@@ -19,11 +19,18 @@ This app is built with:
 - Vue 3
 - Native C bindings for system-level mouse tracking
 
+and uses:
+
+- [Ngrok](https://ngrok.com/) as a reverse proxy for a secure connection
+- [Twilio](https://www.twilio.com/) for video conferencing capabilities
+
 ### Prerequisites
 
 - Node.js (v18 or higher recommended)
 - npm
 - Make and Clang (for building the native mouse tracking module)
+- A twilio account -> create an api key
+- A ngrok account -> follow the easy setup instructions
 
 ### Setup
 
@@ -42,7 +49,19 @@ npm install
 
 This will also automatically build the native mouse tracking module.
 
-3. Start the development server:
+3. Start the token server for twilio:
+
+```bash
+npm start-token-server
+```
+
+4. Start ngrok reverse proxy tunnel with your credentials installed from the instructions:
+
+```bash
+ngrok http --url=<your-unique-id>.ngrok-free.app 3000 
+```
+
+5. Start the development server:
 
 ```bash
 npm start
