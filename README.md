@@ -11,6 +11,12 @@ Nook is a lightweight online collaboration tool inspired by [Around.co](https://
 - Native OS integration (opens links in default browser)
 - Modern, minimal UI with hover effects
 
+## Supported OS
+
+[x] MacOS
+[ ] Linux
+[ ] Windows
+
 ## Development
 
 This app is built with:
