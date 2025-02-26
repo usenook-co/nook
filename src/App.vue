@@ -157,10 +157,7 @@ async function getBestVideoDevice() {
 
 async function getAccessToken() {
   try {
-    const serverUrl =
-      process.env.NODE_ENV === 'development'
-        ? 'https://df70-94-54-24-112.ngrok-free.app' // Add your ngrok URL here that points to your local token server = the port on ngrok startup is equal to the port on the server.js file
-        : 'https://df70-94-54-24-112.ngrok-free.app' // Change this in production
+    const serverUrl = import.meta.env.VITE_NGROK_URL
 
     const response = await fetch(`${serverUrl}/token`, {
       method: 'POST',
