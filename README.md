@@ -1,4 +1,4 @@
-# Nook
+![Nook](./public/nook-banner.webp)
 
 Nook is a lightweight online collaboration tool inspired by [Around.co](https://around.co). It provides a minimalist, floating interface for video calls and collaboration, designed to be unobtrusive while keeping you connected with your team.
 
