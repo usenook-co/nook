@@ -110,6 +110,28 @@ function createWindow(hash = '') {
     }
   })
 
+  // Capture all console messages from the renderer process
+  win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const levels = ['log', 'warn', 'error', 'info', 'debug']
+    const prefix = sourceId ? `[${sourceId.split('/').pop()}:${line}]` : '[Renderer]'
+    switch (levels[level] || 'log') {
+      case 'warn':
+        console.warn(prefix, message)
+        break
+      case 'error':
+        console.error(prefix, message)
+        break
+      case 'info':
+        console.info(prefix, message)
+        break
+      case 'debug':
+        console.debug(prefix, message)
+        break
+      default:
+        console.log(prefix, message)
+    }
+  })
+
   // Set 2:1 aspect ratio immediately after creation
   win.setAspectRatio(2)
 
