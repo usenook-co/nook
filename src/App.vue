@@ -137,7 +137,8 @@ async function getBestVideoDevice() {
   const videoDevices = devices.filter(device => device.kind === 'videoinput')
 
   if (videoDevices.length === 0) {
-    throw new Error('No video devices found')
+    console.log('No video devices found') // Changed this to silent error, because it should be possible to join a room without a camera
+    return null
   }
 
   // Prefer external cameras (usually better quality)
@@ -221,12 +222,14 @@ async function initializeVideo() {
     const deviceId = await getBestVideoDevice()
 
     localStream.value = await window.navigator.mediaDevices.getUserMedia({
-      video: {
-        deviceId: { exact: deviceId },
-        width: { ideal: 320 },
-        height: { ideal: 320 },
-        aspectRatio: { ideal: 1 }
-      },
+      video: deviceId
+        ? {
+            deviceId: { exact: deviceId },
+            width: { ideal: 320 },
+            height: { ideal: 320 },
+            aspectRatio: { ideal: 1 }
+          }
+        : false,
       audio: true
     })
 
