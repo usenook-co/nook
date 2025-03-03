@@ -11,6 +11,7 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "echo \"No linting configured\"",
+    "format": "prettier --write src/",
     "postinstall": "make clean && make"
   },
   "devDependencies": {
@@ -27,6 +28,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "electron": "34.0.0",
     "eslint-plugin-vue": "^9.32.0",
+    "prettier": "3.5.3",
     "vite": "^5.0.12",
     "vue-eslint-parser": "^9.4.3"
   },
