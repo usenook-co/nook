@@ -1,8 +1,9 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 
-// Canvas and drawing variables
+// Refs for the main canvas and its container
 const canvas = ref(null)
+const canvasContainer = ref(null)
 const ctx = ref(null)
 const isDrawing = ref(false)
 let lastPos = { x: 0, y: 0 }
@@ -11,18 +12,25 @@ let lastMidPoint = { x: 0, y: 0 }
 // New reactive variable for drawing mode (toggled via Electron)
 const drawingMode = ref(false)
 
-const strokeColor = ref('#FF0000')
+// Change default color to pink
+const strokeColor = ref('#FF00CC')
 const strokeWidth = ref(5)
 
 // Preset colors for the picker
-const presetColors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF', '#000000', '#FFA500']
+const presetColors = [
+  '#FF00CC', // electric pink
+  '#00FFDD', // bright turquoise
+  '#AAFF00', // lime green
+  '#FF3300', // bright red-orange
+  '#4D4DFF', // royal blue
+  '#FFCC00', // golden yellow
+  '#00FF66', // neon green
+  '#9900FF'  // deep purple
+]
 
 // Fade-out variables
 let fadeTimeout = null
-let fadeAnimationId = null
-let fadeStartTime = null
 const fadeDuration = 1000 // fade over 1 second
-let fadeBuffer = null // offscreen canvas buffer
 
 function initCanvas() {
   const c = canvas.value
@@ -31,11 +39,15 @@ function initCanvas() {
   c.height = window.innerHeight * ratio
   c.style.width = window.innerWidth + 'px'
   c.style.height = window.innerHeight + 'px'
+  // Ensure the active canvas is absolutely positioned on top.
+  c.style.position = 'absolute'
+  c.style.top = '0'
+  c.style.left = '0'
+  c.style.zIndex = '10'
 
   ctx.value = c.getContext('2d')
-  // Scale so that drawing coordinates are in CSS pixels
+  // Scale so that drawing coordinates are in CSS pixels.
   ctx.value.scale(ratio, ratio)
-
   ctx.value.strokeStyle = strokeColor.value
   ctx.value.fillStyle = strokeColor.value
   ctx.value.lineWidth = strokeWidth.value
@@ -44,59 +56,66 @@ function initCanvas() {
 }
 
 function clearCanvas() {
-  // Clears the canvas in CSS coordinate space
+  // Clears the canvas in CSS coordinate space.
   ctx.value.clearRect(0, 0, window.innerWidth, window.innerHeight)
 }
 
 function resetInactivityTimer() {
-  cancelFadeOut()
   if (fadeTimeout) clearTimeout(fadeTimeout)
   fadeTimeout = setTimeout(() => startFadeOut(), 1000)
 }
 
-function cancelFadeOut() {
-  if (fadeAnimationId) {
-    cancelAnimationFrame(fadeAnimationId)
-    fadeAnimationId = null
-  }
-  fadeBuffer = null
-  fadeStartTime = null
-}
-
 function startFadeOut() {
-  // Capture the current canvas into an offscreen buffer.
-  const offscreen = document.createElement('canvas')
-  offscreen.width = canvas.value.width
-  offscreen.height = canvas.value.height
-  offscreen.getContext('2d').drawImage(canvas.value, 0, 0)
-  fadeBuffer = offscreen
+  const activeCanvas = canvas.value
+  const ratio = window.devicePixelRatio || 1
 
-  fadeStartTime = performance.now()
-  fadeAnimationId = requestAnimationFrame(fadeStep)
-}
+  // Create a clone canvas to serve as the fading layer.
+  const fadingCanvas = document.createElement('canvas')
+  fadingCanvas.width = activeCanvas.width
+  fadingCanvas.height = activeCanvas.height
+  fadingCanvas.style.width = window.innerWidth + 'px'
+  fadingCanvas.style.height = window.innerHeight + 'px'
+  fadingCanvas.style.position = 'absolute'
+  fadingCanvas.style.top = '0'
+  fadingCanvas.style.left = '0'
+  // Place it behind the active canvas.
+  fadingCanvas.style.zIndex = '1'
+  fadingCanvas.style.pointerEvents = 'none'
 
-function fadeStep(timestamp) {
-  const progress = (timestamp - fadeStartTime) / fadeDuration
-  if (progress < 1) {
-    clearCanvas()
-    ctx.value.save()
-    ctx.value.globalAlpha = 1 - progress
-    ctx.value.drawImage(
-      fadeBuffer,
-      0, 0, fadeBuffer.width, fadeBuffer.height,
-      0, 0, window.innerWidth, window.innerHeight
-    )
-    ctx.value.restore()
-    fadeAnimationId = requestAnimationFrame(fadeStep)
-  } else {
-    clearCanvas()
-    fadeAnimationId = null
-    fadeBuffer = null
-  }
+  const fadingCtx = fadingCanvas.getContext('2d')
+  // Maintain high resolution.
+  fadingCtx.scale(ratio, ratio)
+  fadingCtx.drawImage(
+    activeCanvas,
+    0, 0, activeCanvas.width, activeCanvas.height,
+    0, 0, window.innerWidth, window.innerHeight
+  )
+
+  // Append the fading canvas into the container.
+  canvasContainer.value.appendChild(fadingCanvas)
+
+  // Clear the active canvas so new drawing happens on a blank slate.
+  clearCanvas()
+
+  // Fade out the clone via CSS transition.
+  fadingCanvas.style.transition = `opacity ${fadeDuration}ms linear`
+  // Force reflow so the transition applies.
+  void fadingCanvas.offsetWidth
+  fadingCanvas.style.opacity = '0'
+
+  // Remove the fading canvas after the transition.
+  setTimeout(() => {
+    if (fadingCanvas.parentNode) {
+      fadingCanvas.parentNode.removeChild(fadingCanvas)
+    }
+  }, fadeDuration)
 }
 
 function startDrawing(e) {
-  cancelFadeOut()
+  // Only start drawing if the event target is the active canvas.
+  if (e.target !== canvas.value) return
+
+  // Cancel any scheduled fade-out (but let any already fading canvases continue).
   if (fadeTimeout) {
     clearTimeout(fadeTimeout)
     fadeTimeout = null
@@ -153,7 +172,7 @@ function handleResize() {
   const tempCtx = tempCanvas.getContext('2d')
   tempCtx.drawImage(canvas.value, 0, 0)
 
-  // Update canvas dimensions based on new window size.
+  // Update canvas dimensions based on the new window size.
   canvas.value.width = window.innerWidth * ratio
   canvas.value.height = window.innerHeight * ratio
   canvas.value.style.width = window.innerWidth + 'px'
@@ -207,8 +226,7 @@ onMounted(() => {
   canvas.value.addEventListener('mousemove', mouseMoveHandler)
   canvas.value.addEventListener('mouseup', stopDrawing)
   canvas.value.addEventListener('mouseout', stopDrawing)
-  
-  // Save the handler reference for removal
+  // Save the handler reference for removal.
   canvas.value._mouseMoveHandler = mouseMoveHandler
 
   // Listen for drawing mode toggle from Electron.
@@ -233,23 +251,41 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div>
+  <div ref="canvasContainer" class="canvas-container">
     <canvas ref="canvas"></canvas>
     <!-- Color picker shows only when drawing mode is active -->
-    <div v-if="drawingMode" class="color-picker">
+    <div 
+      v-if="drawingMode" 
+      class="color-picker" 
+      @mousedown.stop 
+      @pointerdown.stop 
+      @click.stop
+    >
       <div class="color-options">
-        <div v-for="color in presetColors" :key="color"
+        <div 
+          v-for="color in presetColors" 
+          :key="color"
           class="color-circle"
-          :style="{ backgroundColor: color }"
-          @click="changeColor(color)">
-        </div>
+          :class="{ 'selected': color === strokeColor }"
+          :style="{ backgroundColor: color, color: color }"
+          @mousedown.stop 
+          @pointerdown.stop 
+          @click.stop="changeColor(color)"
+        ></div>
       </div>
-      <input type="color" :value="strokeColor" @input="handleCustomColor" class="custom-color-picker" />
     </div>
   </div>
 </template>
 
 <style>
+.canvas-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
 canvas {
   display: block;
   border: none;
@@ -262,7 +298,7 @@ canvas {
   bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
-  /* Black transparent background with blur effect */
+  z-index: 1000;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(10px);
   padding: 8px 12px;
@@ -270,7 +306,6 @@ canvas {
   display: flex;
   align-items: center;
   box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-  /* Subtle jump and fade in animation */
   animation: jumpIn 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
@@ -294,25 +329,20 @@ canvas {
   display: flex;
 }
 .color-circle {
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   margin: 0 5px;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+  border: 2px solid transparent;
 }
 .color-circle:active {
   transform: scale(1.2);
 }
-
-/* Custom color picker styling */
-.custom-color-picker {
-  margin-left: 10px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  width: 30px;
-  height: 30px;
-  padding: 0;
+.color-circle.selected {
+  transform: scale(1.15);
+  border: 2px solid currentColor;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
 }
 </style>
