@@ -20,10 +20,6 @@ let windowPos = { x: 0, y: 0 }
 let gifSelectorWindow = null
 let whiteboardWindow = null
 let isDrawingEnabled = false
-// Declare missing variables for resize handling
-let isResizing = false
-let initialBounds = null
-
 let whiteboardPreloadPath = MAIN_WINDOW_VITE_DEV_SERVER_URL 
   ? path.join(__dirname, 'whiteboardPreload.js')
   : path.join(__dirname, '../preload/whiteboardPreload.js')
@@ -678,13 +674,6 @@ function toggleDrawingMode() {
   // Notify the renderer process about the change
   whiteboardWindow.webContents.send('toggleDrawing', isDrawingEnabled)
   
-  // Explicitly show or hide the color selector based on drawing mode
-  if (isDrawingEnabled) {
-    whiteboardWindow.webContents.send('showColorSelector')
-  } else {
-    whiteboardWindow.webContents.send('hideColorSelector')
-  }
-  
   // Show a notification in the whiteboard window
   whiteboardWindow.webContents.send('showNotification', {
     message: isDrawingEnabled ? 'Drawing Mode: ON' : 'Drawing Mode: OFF',
@@ -707,4 +696,43 @@ ipcMain.handle('closeWhiteboard', () => {
 // Make sure to unregister shortcuts when app quits
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+})
+
+// Add this to the existing IPC handlers section
+ipcMain.handle('sendDrawingEvent', (event, drawingData) => {
+  try {
+    // Get the main window to send the drawing data through Twilio
+    const mainWindow = BrowserWindow.getAllWindows().find(win => 
+      win !== whiteboardWindow && 
+      !win.isDestroyed() && 
+      win !== gifSelectorWindow
+    )
+    
+    if (mainWindow) {
+      mainWindow.webContents.send('forwardDrawingEvent', drawingData)
+      return true
+    }
+    return false
+  } catch (err) {
+    console.error('Error sending drawing event:', err)
+    return false
+  }
+})
+
+// Add to the existing App.vue to handle receiving remote drawing events
+// Then forward them to the whiteboard window
+ipcMain.on('broadcastDrawingEvent', (event, drawingData) => {
+  if (whiteboardWindow && !whiteboardWindow.isDestroyed()) {
+    whiteboardWindow.webContents.send('remoteDrawingEvent', drawingData)
+  }
+})
+
+// Add these IPC handlers after other ipcMain handlers
+ipcMain.handle('getWhiteboardColor', () => {
+  return store.get('whiteboardColor', '#FF00CC') // Default to electric pink if not set
+})
+
+ipcMain.handle('setWhiteboardColor', (_, color) => {
+  store.set('whiteboardColor', color)
+  return true
 })

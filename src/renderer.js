@@ -7,13 +7,6 @@ import WhiteboardWindow from './components/WhiteboardWindow.vue'
 const isGifSelector = window.location.hash === '#gif-selector'
 const isWhiteboard = window.location.hash === '#whiteboard'
 
-// Log the window mode
-console.log(
-  `Initializing ${isWhiteboard ? 'whiteboard' : isGifSelector ? 'GIF selector' : 'main'} window.`,
-  'electron object available:',
-  !!window.electron
-)
-
 if (isWhiteboard) {
   // Configure whiteboard window styles for transparency
   document.documentElement.classList.add('whiteboard-page')
@@ -25,27 +18,6 @@ if (isWhiteboard) {
   document.body.style.width = '100vw'
   document.body.style.backgroundColor = 'transparent'
   document.body.style.cursor = 'default'
-  
-  // Add a debug message element that will show for a few seconds
-  const debugDiv = document.createElement('div')
-  debugDiv.style.position = 'fixed'
-  debugDiv.style.top = '10px'
-  debugDiv.style.left = '10px'
-  debugDiv.style.padding = '5px'
-  debugDiv.style.backgroundColor = 'rgba(255,255,255,0.8)'
-  debugDiv.style.color = 'black'
-  debugDiv.style.borderRadius = '5px'
-  debugDiv.style.zIndex = '10000'
-  debugDiv.style.fontSize = '12px'
-  debugDiv.textContent = 'Whiteboard initialized - Press Command+D to toggle drawing mode'
-  document.body.appendChild(debugDiv)
-  
-  // Remove the debug element after 5 seconds
-  setTimeout(() => {
-    debugDiv.style.opacity = '0'
-    debugDiv.style.transition = 'opacity 1s'
-    setTimeout(() => debugDiv.remove(), 1000)
-  }, 5000)
   
   // Mount the whiteboard app
   const app = createApp(WhiteboardWindow)
@@ -94,6 +66,6 @@ if (isWhiteboard) {
     }
   })
 }
-
 // Log for debugging
 console.log(`${isWhiteboard ? 'Whiteboard' : isGifSelector ? 'GIF selector' : 'Main app'} initialized`)
+

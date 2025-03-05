@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld('electron', {
   // Drawing mode toggling
   onToggleDrawing: (callback) => {
     ipcRenderer.removeAllListeners('toggleDrawing')
-    ipcRenderer.on('toggleDrawing', (event, enabled) => {
+    ipcRenderer.on('toggleDrawing', (_, enabled) => {
       console.log('Drawing mode toggled:', enabled)
       callback(enabled)
     })
@@ -58,7 +58,22 @@ contextBridge.exposeInMainWorld('electron', {
       document.documentElement.style.cursor = cursorType;
       document.body.style.cursor = cursorType;
     });
-  }
+  },
+  
+  // Add drawing synchronization methods
+  sendDrawingEvent: (drawingData) => {
+    ipcRenderer.invoke('sendDrawingEvent', drawingData)
+  },
+  
+  onRemoteDrawingEvent: (callback) => {
+    ipcRenderer.on('remoteDrawingEvent', (_, data) => {
+      callback(data)
+    })
+  },
+  
+  // Add methods to get and set the whiteboard color preference
+  getWhiteboardColor: () => ipcRenderer.invoke('getWhiteboardColor'),
+  setWhiteboardColor: (color) => ipcRenderer.invoke('setWhiteboardColor', color)
 })
 
 console.log('Whiteboard preload script loaded')
