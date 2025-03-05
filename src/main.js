@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, clipboard, globalShortcut } from 'electron'
 import path from 'node:path'
 import { spawn } from 'child_process'
 import started from 'electron-squirrel-startup'
@@ -10,11 +10,26 @@ remote.initialize()
 
 const store = new Store()
 
+console.log('Current directory:', __dirname)
+console.log('Available files in directory:', require('fs').readdirSync(__dirname))
+
 let isDragging = false
 let lastMousePos = { x: 0, y: 0 }
 let mainWindow = null
 let windowPos = { x: 0, y: 0 }
 let gifSelectorWindow = null
+let whiteboardWindow = null
+let isDrawingEnabled = false
+// Declare missing variables for resize handling
+let isResizing = false
+let initialBounds = null
+
+let whiteboardPreloadPath = MAIN_WINDOW_VITE_DEV_SERVER_URL 
+  ? path.join(__dirname, 'whiteboardPreload.js')
+  : path.join(__dirname, '../preload/whiteboardPreload.js')
+
+// Log the path to help with debugging
+console.log('Using whiteboard preload path:', whiteboardPreloadPath)
 
 // Update the GIF selector preload path definition to make sure it's resolved properly
 const gifSelectorPreloadPath = path.join(__dirname, 'gifSelectorPreload.js')
@@ -169,37 +184,58 @@ function createWindow(hash = '') {
     try {
       // Convert buffer to string and clean up whitespace
       const dataStr = data.toString().trim()
-
+      
       // Skip empty data
       if (!dataStr) return
-
-      // Split the data and validate format
-      const parts = dataStr.split(',')
-      if (parts.length !== 3) {
-        console.warn('Invalid mouse tracker data format:', dataStr)
-        return
+      
+      // The data might contain multiple lines, so split and process each line
+      const lines = dataStr.split('\n')
+      
+      for (const line of lines) {
+        if (!line.trim()) continue
+        
+        // Split the data and validate format
+        const parts = line.split(',')
+        if (parts.length < 3) {
+          console.warn('Invalid mouse tracker data format:', line)
+          continue
+        }
+        
+        const eventType = parts[0]
+        const mouseX = parseFloat(parts[1])
+        const mouseY = parseFloat(parts[2])
+        
+        // Validate numbers
+        if (isNaN(mouseX) || isNaN(mouseY)) {
+          console.warn('Invalid mouse coordinates:', parts[1], parts[2])
+          continue
+        }
+        
+        // Pass all mouse events to the whiteboard when drawing is enabled
+        if (whiteboardWindow && !whiteboardWindow.isDestroyed() && isDrawingEnabled) {
+          // For macOS with Retina display, we need to adjust the coordinates
+          const factor = process.platform === 'darwin' ? whiteboardWindow.webContents.getZoomFactor() : 1
+          
+          const mouseData = {
+            type: eventType,
+            x: mouseX / factor,
+            y: mouseY / factor
+          };
+          whiteboardWindow.webContents.send('mouseEvent', mouseData);
+        }
+        
+        // Only handle dragging for the main window
+        if (isDragging && (eventType === 'move' || eventType === 'drag')) {
+          const deltaX = mouseX - lastMousePos.x
+          const deltaY = mouseY - lastMousePos.y
+          
+          windowPos.x += deltaX
+          windowPos.y += deltaY
+          win.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
+        }
+        
+        lastMousePos = { x: mouseX, y: mouseY }
       }
-
-      const [eventType, xStr, yStr] = parts
-      const mouseX = parseFloat(xStr)
-      const mouseY = parseFloat(yStr)
-
-      // Validate numbers
-      if (isNaN(mouseX) || isNaN(mouseY)) {
-        console.warn('Invalid mouse coordinates:', xStr, yStr)
-        return
-      }
-
-      if (isDragging && (eventType === 'move' || eventType === 'drag')) {
-        const deltaX = mouseX - lastMousePos.x
-        const deltaY = mouseY - lastMousePos.y
-
-        windowPos.x += deltaX
-        windowPos.y += deltaY
-        win.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
-      }
-
-      lastMousePos = { x: mouseX, y: mouseY }
     } catch (error) {
       console.error('Error processing mouse data:', error.message, '\nRaw data:', data.toString())
     }
@@ -240,6 +276,12 @@ ipcMain.on('createInitiatorWindow', () => {
 
 app.whenReady().then(() => {
   mainWindow = createWindow()
+  
+  // Register global shortcut (Command+D for macOS, Ctrl+D for Windows/Linux)
+  const shortcut = process.platform === 'darwin' ? 'Command+D' : 'Ctrl+D'
+  globalShortcut.register(shortcut, toggleDrawingMode)
+  
+  console.log(`Registered global shortcut: ${shortcut} for whiteboard toggle`)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -497,3 +539,172 @@ function setupWindowLogs(window, windowName) {
     }
   })
 }
+
+function createWhiteboardWindow() {
+  const { screen } = require('electron')
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width, height } = primaryDisplay.workAreaSize
+
+  // Verify preload script exists before creating window
+  try {
+    const fs = require('fs')
+    if (!fs.existsSync(whiteboardPreloadPath)) {
+      console.error('Whiteboard preload script not found at:', whiteboardPreloadPath)
+      const possibleLocations = [
+        path.join(__dirname, 'whiteboardPreload.js'),
+        path.join(__dirname, '../preload/whiteboardPreload.js'),
+        path.join(__dirname, '../renderer/preload/whiteboardPreload.js'),
+        path.join(app.getAppPath(), 'src/whiteboardPreload.js')
+      ]
+      
+      let found = false
+      for (const location of possibleLocations) {
+        if (fs.existsSync(location)) {
+          console.log('Found preload script at alternative location:', location)
+          whiteboardPreloadPath = location
+          found = true
+          break
+        }
+      }
+      
+      if (!found) {
+        console.error('Could not find whiteboard preload script in any expected location')
+      }
+    } else {
+      console.log('Whiteboard preload script found at:', whiteboardPreloadPath)
+    }
+  } catch (err) {
+    console.error('Error checking for preload script:', err)
+  }
+
+  // Create a transparent, sticky, click-through window
+  const win = new BrowserWindow({
+    width,
+    height,
+    x: 0,
+    y: 0,
+    transparent: true,
+    frame: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    movable: false,       // Prevents the window from being moved by the user
+    resizable: false,     // (Optional) Prevents resizing
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    webPreferences: {
+      preload: whiteboardPreloadPath,
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false
+    }
+  })
+
+  // Make window click-through by default (non-drawing mode)
+  win.setIgnoreMouseEvents(true)
+
+  // Ensure window spans the entire screen and stays at (0, 0)
+  win.setSize(width, height)
+  win.setPosition(0, 0)
+
+  // Ensure the window is visible on all workspaces (sticky across spaces)
+  win.setVisibleOnAllWorkspaces(true)
+
+  // Setup window logs and remote module
+  setupWindowLogs(win, 'WhiteboardWindow')
+  remote.enable(win.webContents)
+
+  // Load the whiteboard URL
+  const url = MAIN_WINDOW_VITE_DEV_SERVER_URL
+    ? MAIN_WINDOW_VITE_DEV_SERVER_URL + '#whiteboard'
+    : path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html#whiteboard`)
+  console.log('Loading whiteboard URL:', url)
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+    win.loadURL(url)
+  } else {
+    win.loadFile(url.split('#')[0], { hash: 'whiteboard' })
+  }
+
+  // Hide window from app switcher and dock
+  win.setSkipTaskbar(true)
+  
+  // Adjust window size on display metrics changes
+  screen.on('display-metrics-changed', () => {
+    const newBounds = primaryDisplay.workAreaSize
+    win.setSize(newBounds.width, newBounds.height)
+    win.setPosition(0, 0)
+  })
+  
+  win.webContents.on('did-finish-load', () => {
+    console.log('Whiteboard window loaded')
+  })
+
+  return win
+}
+
+// Update the toggle drawing mode function to improve interactivity
+function toggleDrawingMode() {
+  if (!whiteboardWindow || whiteboardWindow.isDestroyed()) {
+    whiteboardWindow = createWhiteboardWindow()
+    whiteboardWindow.once('ready-to-show', () => {
+      setTimeout(() => {
+        toggleDrawingMode() // Call again once the window is ready
+      }, 500)
+    })
+    return
+  }
+
+  isDrawingEnabled = !isDrawingEnabled
+  
+  // Toggle whether mouse events pass through the window
+  if (isDrawingEnabled) {
+    // When drawing is enabled, we need to capture mouse events
+    whiteboardWindow.setIgnoreMouseEvents(false)
+    
+    // Set focus to the whiteboard window to ensure it receives events
+    whiteboardWindow.focus()
+    whiteboardWindow.showInactive()
+    
+    // Force the window to be on top and interactive
+    whiteboardWindow.setAlwaysOnTop(true, 'screen-saver')
+    
+    console.log('Drawing mode enabled - window should capture mouse events now')
+  } else {
+    // When drawing is disabled, let mouse events pass through
+    whiteboardWindow.setIgnoreMouseEvents(true, { forward: true })
+    whiteboardWindow.setAlwaysOnTop(true)
+    console.log('Drawing mode disabled - window is now click-through')
+  }
+  
+  // Notify the renderer process about the change
+  whiteboardWindow.webContents.send('toggleDrawing', isDrawingEnabled)
+  
+  // Explicitly show or hide the color selector based on drawing mode
+  if (isDrawingEnabled) {
+    whiteboardWindow.webContents.send('showColorSelector')
+  } else {
+    whiteboardWindow.webContents.send('hideColorSelector')
+  }
+  
+  // Show a notification in the whiteboard window
+  whiteboardWindow.webContents.send('showNotification', {
+    message: isDrawingEnabled ? 'Drawing Mode: ON' : 'Drawing Mode: OFF',
+    duration: 2000
+  })
+  
+  console.log('Drawing mode toggled:', isDrawingEnabled)
+}
+
+// Add these IPC handlers
+ipcMain.handle('closeWhiteboard', () => {
+  if (whiteboardWindow && !whiteboardWindow.isDestroyed()) {
+    isDrawingEnabled = false
+    whiteboardWindow.close()
+    whiteboardWindow = null
+  }
+  return true
+})
+
+// Make sure to unregister shortcuts when app quits
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+})
