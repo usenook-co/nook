@@ -1,18 +1,30 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import GifSelectorWindow from './components/GifSelectorWindow.vue'
+import WhiteboardWindow from './components/WhiteboardWindow.vue'
 
-// Check if we're in the GIF selector window
+// Check which window we're in
 const isGifSelector = window.location.hash === '#gif-selector'
+const isWhiteboard = window.location.hash === '#whiteboard'
 
-// Log the window mode and presence of electron object
-console.log(
-  `Initializing ${isGifSelector ? 'GIF selector' : 'main'} window.`,
-  'electron object available:',
-  !!window.electron
-)
-
-if (isGifSelector) {
+if (isWhiteboard) {
+  // Configure whiteboard window styles for transparency
+  document.documentElement.classList.add('whiteboard-page')
+  document.documentElement.style.background = 'transparent'
+  document.body.style.margin = '0'
+  document.body.style.padding = '0'
+  document.body.style.overflow = 'hidden'
+  document.body.style.height = '100vh'
+  document.body.style.width = '100vw'
+  document.body.style.backgroundColor = 'transparent'
+  document.body.style.cursor = 'default'
+  
+  // Mount the whiteboard app
+  const app = createApp(WhiteboardWindow)
+  app.mount('#app')
+  
+  console.log('Whiteboard window mounted')
+} else if (isGifSelector) {
   // Add special styles to the GIF selector window
   document.documentElement.classList.add('gif-selector-page')
   document.body.style.margin = '0'
@@ -54,6 +66,6 @@ if (isGifSelector) {
     }
   })
 }
-
 // Log for debugging
-console.log(`${isGifSelector ? 'GIF selector' : 'Main app'} initialized`)
+console.log(`${isWhiteboard ? 'Whiteboard' : isGifSelector ? 'GIF selector' : 'Main app'} initialized`)
+
