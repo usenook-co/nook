@@ -574,12 +574,6 @@ function sendChatMessage() {
   chatMessage.value = ''
 }
 
-function handleChatContainerClick(event) {
-  isClickingInside = true
-  // Prevent the event from bubbling up
-  event.stopPropagation()
-}
-
 function handleChatFocus(focused) {
   isChatExpanded.value = focused
 }
