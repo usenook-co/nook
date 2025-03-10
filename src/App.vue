@@ -33,7 +33,6 @@ const selectedGif = ref(null)
 const chatMessage = ref('')
 const chatMessages = ref([])
 const isChatExpanded = ref(false)
-const chatInputRef = ref(null)
 let isClickingInside = false
 
 function startDrag() {
@@ -1035,21 +1034,5 @@ function openGifSelectorWindow() {
   border-radius: 12px;
   width: 300px;
   padding: 16px;
-}
-
-.chat-input {
-  display: flex;
-  gap: 8px;
-}
-
-.chat-input input {
-  flex: 1;
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 14px;
-  min-width: 150px;
 }
 </style>
