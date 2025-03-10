@@ -3,6 +3,7 @@ import './polyfills'
 import './reset.css'
 import { ref, onMounted, onUnmounted, watch, provide } from 'vue'
 import Video from 'twilio-video'
+import ChatMessages from './components/ChatMessages.vue'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
@@ -725,12 +726,7 @@ function openGifSelectorWindow() {
 
         <!-- Collapsed Chat Input -->
         <div class="chat-container" :class="{ 'chat-expanded': isChatExpanded }">
-          <div v-if="isChatExpanded" class="chat-messages">
-            <div v-for="(msg, index) in chatMessages" :key="index" class="chat-message">
-              <span class="chat-sender">{{ msg.sender }}:</span>
-              <span class="chat-text">{{ msg.message }}</span>
-            </div>
-          </div>
+          <ChatMessages v-if="isChatExpanded" :messages="chatMessages" />
           <div class="chat-input">
             <input
               v-model="chatMessage"
@@ -1044,12 +1040,6 @@ function openGifSelectorWindow() {
   padding: 16px;
 }
 
-.chat-messages {
-  max-height: 50vh;
-  overflow-y: auto;
-  margin-bottom: 8px;
-}
-
 .chat-input {
   display: flex;
   gap: 8px;
@@ -1074,16 +1064,5 @@ function openGifSelectorWindow() {
   color: white;
   cursor: pointer;
   font-size: 14px;
-}
-
-.chat-message {
-  color: white;
-  margin-bottom: 4px;
-}
-
-.chat-sender {
-  font-weight: bold;
-  color: #4caf50;
-  margin-right: 4px;
 }
 </style>
