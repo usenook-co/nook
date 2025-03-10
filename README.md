@@ -11,6 +11,7 @@ Nook is a lightweight online collaboration tool inspired by [Around.co](https://
 - Native OS integration (opens links in default browser)
 - Modern, minimal UI with hover effects
 - Giphy search with click on avatar by @bitbrain
+- Chatting with participants
 
 ## Supported OS
 
