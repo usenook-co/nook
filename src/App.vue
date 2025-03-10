@@ -1045,7 +1045,7 @@ function openGifSelectorWindow() {
 }
 
 .chat-messages {
-  max-height: 150px;
+  max-height: 50vh;
   overflow-y: auto;
   margin-bottom: 8px;
 }
