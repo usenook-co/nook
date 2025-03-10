@@ -30,6 +30,7 @@ const hasRemoteScreenShare = ref(false)
 const selectedGif = ref(null)
 const chatMessage = ref('')
 const chatMessages = ref([])
+const isChatExpanded = ref(false)
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -570,6 +571,10 @@ function sendChatMessage() {
   chatMessage.value = ''
 }
 
+function handleChatFocus(focused) {
+  isChatExpanded.value = focused
+}
+
 onMounted(() => {
   // Don't auto-initialize video, wait for user action
   showOverlay.value = true
@@ -699,7 +704,7 @@ function openGifSelectorWindow() {
       </div>
 
       <!-- Chat UI -->
-      <div v-if="isConnected" class="chat-container">
+      <div v-if="isConnected" class="chat-container" :class="{ 'chat-expanded': isChatExpanded }">
         <div class="chat-messages">
           <div v-for="(msg, index) in chatMessages" :key="index" class="chat-message">
             <span class="chat-sender">{{ msg.sender }}:</span>
@@ -707,7 +712,14 @@ function openGifSelectorWindow() {
           </div>
         </div>
         <div class="chat-input">
-          <input v-model="chatMessage" @keyup.enter="sendChatMessage" placeholder="Type a message..." type="text" />
+          <input
+            v-model="chatMessage"
+            @keyup.enter="sendChatMessage"
+            @focus="handleChatFocus(true)"
+            @blur="handleChatFocus(false)"
+            placeholder="Type a message..."
+            type="text"
+          />
           <button @click="sendChatMessage">Send</button>
         </div>
       </div>
@@ -994,13 +1006,22 @@ function openGifSelectorWindow() {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  min-width: 200px;
-  min-height: 200px;
   background: rgba(0, 0, 0, 0.8);
   border-radius: 12px;
   display: flex;
   flex-direction: column;
   z-index: 1000;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.chat-container:not(.chat-expanded) {
+  height: 100px;
+  width: 100px;
+}
+
+.chat-container.chat-expanded {
+  min-height: 250px;
 }
 
 .chat-messages {
@@ -1010,6 +1031,12 @@ function openGifSelectorWindow() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.chat-expanded .chat-messages {
+  opacity: 1;
 }
 
 .chat-message {
