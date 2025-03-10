@@ -722,36 +722,32 @@ function openGifSelectorWindow() {
 
       <div v-if="isConnected" class="room-info">
         <div class="room-name">Room: {{ roomName }}</div>
+
+        <!-- Collapsed Chat Input -->
+        <div class="chat-container" :class="{ 'chat-expanded': isChatExpanded }">
+          <div v-if="isChatExpanded" class="chat-messages">
+            <div v-for="(msg, index) in chatMessages" :key="index" class="chat-message">
+              <span class="chat-sender">{{ msg.sender }}:</span>
+              <span class="chat-text">{{ msg.message }}</span>
+            </div>
+          </div>
+          <div class="chat-input">
+            <input
+              v-model="chatMessage"
+              @keyup.enter="sendChatMessage"
+              @focus="handleChatFocus(true)"
+              @blur="handleChatBlur"
+              placeholder="Type a message..."
+              type="text"
+            />
+            <button @click="sendChatMessage">Send</button>
+          </div>
+        </div>
+
         <button @click="toggleScreenShare" class="screen-share-button" :class="{ active: isScreenSharing }">
           {{ isScreenSharing ? 'Stop Sharing' : 'Share Screen' }}
         </button>
         <button @click="leaveRoom" class="leave-button">Leave Room</button>
-      </div>
-
-      <!-- Chat UI -->
-      <div
-        v-if="isConnected"
-        class="chat-container"
-        :class="{ 'chat-expanded': isChatExpanded }"
-        @mousedown.stop="handleChatContainerClick"
-      >
-        <div class="chat-messages">
-          <div v-for="(msg, index) in chatMessages" :key="index" class="chat-message">
-            <span class="chat-sender">{{ msg.sender }}:</span>
-            <span class="chat-text">{{ msg.message }}</span>
-          </div>
-        </div>
-        <div class="chat-input">
-          <input
-            v-model="chatMessage"
-            @keyup.enter="sendChatMessage"
-            @focus="handleChatFocus(true)"
-            @blur="handleChatBlur"
-            placeholder="Type a message..."
-            type="text"
-          />
-          <button @click="sendChatMessage">Send</button>
-        </div>
       </div>
     </div>
   </div>
@@ -1033,78 +1029,62 @@ function openGifSelectorWindow() {
 }
 
 .chat-container {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 12px;
-  display: flex;
-  flex-direction: column;
-  z-index: 1000;
-  transition: all 0.3s ease;
-  overflow: hidden;
-}
-
-.chat-container:not(.chat-expanded) {
-  height: 100px;
-  width: 100px;
+  position: relative;
+  min-width: 200px;
 }
 
 .chat-container.chat-expanded {
-  min-height: 250px;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 12px;
+  width: 300px;
+  padding: 16px;
 }
 
 .chat-messages {
-  flex: 1;
+  max-height: 300px;
   overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.chat-expanded .chat-messages {
-  opacity: 1;
-}
-
-.chat-message {
-  color: white;
-  font-size: 14px;
-}
-
-.chat-sender {
-  font-weight: bold;
-  color: #4caf50;
-  margin-right: 8px;
+  margin-bottom: 8px;
 }
 
 .chat-input {
-  padding: 16px;
   display: flex;
   gap: 8px;
 }
 
 .chat-input input {
   flex: 1;
-  padding: 8px;
-  border-radius: 4px;
+  padding: 4px 12px;
+  border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.1);
   color: white;
+  font-size: 14px;
+  min-width: 150px;
 }
 
 .chat-input button {
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: none;
   background: #4caf50;
   color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
   cursor: pointer;
+  font-size: 14px;
 }
 
-.chat-input button:hover {
-  background: #45a049;
+.chat-message {
+  color: white;
+  margin-bottom: 4px;
+}
+
+.chat-sender {
+  font-weight: bold;
+  color: #4caf50;
+  margin-right: 4px;
 }
 </style>
