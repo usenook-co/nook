@@ -1052,14 +1052,4 @@ function openGifSelectorWindow() {
   font-size: 14px;
   min-width: 150px;
 }
-
-.chat-input button {
-  padding: 4px 12px;
-  border-radius: 20px;
-  border: none;
-  background: #4caf50;
-  color: white;
-  cursor: pointer;
-  font-size: 14px;
-}
 </style>
