@@ -10,6 +10,7 @@ Nook is a lightweight online collaboration tool inspired by [Around.co](https://
 - System-level mouse event tracking for smooth interactions
 - Native OS integration (opens links in default browser)
 - Modern, minimal UI with hover effects
+- Giphy search by @bitbrain
 
 ## Supported OS
 
@@ -29,6 +30,7 @@ and uses:
 
 - [Ngrok](https://ngrok.com/) as a reverse proxy for a secure connection
 - [Twilio](https://www.twilio.com/) for video conferencing capabilities
+- [Giphy](https://giphy.com/) for fun gifs
 
 ### Prerequisites
 
@@ -37,6 +39,7 @@ and uses:
 - Make and Clang (for building the native mouse tracking module)
 - A twilio account -> create an api key
 - A ngrok account -> follow the easy setup instructions
+- A giphy account -> create an api key
 
 ### Setup
 
