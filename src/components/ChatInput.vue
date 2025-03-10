@@ -22,7 +22,7 @@ export default {
   <div class="chat-input">
     <input
       :value="modelValue"
-      @input="e => emit('update:modelValue', e.target.value)"
+      @input="e => $emit('update:modelValue', e.target.value)"
       @keyup.enter="$emit('keyup:enter')"
       @focus="onFocus"
       @blur="onBlur"

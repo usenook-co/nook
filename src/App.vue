@@ -3,8 +3,7 @@ import './polyfills'
 import './reset.css'
 import { ref, onMounted, onUnmounted, watch, provide } from 'vue'
 import Video from 'twilio-video'
-import ChatMessages from './components/ChatMessages.vue'
-import ChatInput from './components/ChatInput.vue'
+import ChatContainer from './components/ChatContainer.vue'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
@@ -30,10 +29,7 @@ const wrapper = ref(null)
 const localStream = ref(null)
 const hasRemoteScreenShare = ref(false)
 const selectedGif = ref(null)
-const chatMessage = ref('')
 const chatMessages = ref([])
-const isChatExpanded = ref(false)
-let isClickingInside = false
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -555,12 +551,12 @@ function handleDirectGifSelection(gifUrl) {
   }
 }
 
-function sendChatMessage() {
-  if (!chatMessage.value.trim() || !twilioDataTrack) return
+function sendChatMessage(message) {
+  if (!message.trim() || !twilioDataTrack) return
 
   const messageData = {
     type: 'chat',
-    message: chatMessage.value,
+    message: message,
     sender: identity.value,
     timestamp: Date.now()
   }
@@ -569,21 +565,6 @@ function sendChatMessage() {
 
   // Add message to local chat
   chatMessages.value.push(messageData)
-
-  // Clear input
-  chatMessage.value = ''
-}
-
-function handleChatFocus(focused) {
-  isChatExpanded.value = focused
-}
-
-function handleChatBlur() {
-  // Only collapse if we're not clicking inside the container
-  if (!isClickingInside) {
-    isChatExpanded.value = false
-  }
-  isClickingInside = false
 }
 
 onMounted(() => {
@@ -606,14 +587,6 @@ onMounted(() => {
   window.electron.onGifSelected(gifUrl => {
     selectedGif.value = gifUrl
   })
-
-  document.addEventListener('mousedown', event => {
-    const chatContainer = document.querySelector('.chat-container')
-    if (chatContainer && !chatContainer.contains(event.target)) {
-      isClickingInside = false
-      isChatExpanded.value = false
-    }
-  })
 })
 
 onUnmounted(() => {
@@ -625,7 +598,6 @@ onUnmounted(() => {
   })
 
   leaveRoom()
-  document.removeEventListener('mousedown', () => {})
 })
 
 function handleAvatarClick() {
@@ -718,16 +690,7 @@ function openGifSelectorWindow() {
       <div v-if="isConnected" class="room-info">
         <div class="room-name">Room: {{ roomName }}</div>
 
-        <!-- Collapsed Chat Input -->
-        <div class="chat-container" :class="{ 'chat-expanded': isChatExpanded }">
-          <ChatMessages v-if="isChatExpanded" :messages="chatMessages" />
-          <ChatInput
-            v-model="chatMessage"
-            @keyup:enter="sendChatMessage"
-            :onFocus="() => handleChatFocus(true)"
-            :onBlur="handleChatBlur"
-          />
-        </div>
+        <ChatContainer :messages="chatMessages" @send-message="sendChatMessage" />
 
         <button @click="toggleScreenShare" class="screen-share-button" :class="{ active: isScreenSharing }">
           {{ isScreenSharing ? 'Stop Sharing' : 'Share Screen' }}
@@ -1011,22 +974,5 @@ function openGifSelectorWindow() {
 
 .local-avatar:hover .remove-gif-indicator {
   opacity: 1;
-}
-
-.chat-container {
-  position: relative;
-  min-width: 200px;
-}
-
-.chat-container.chat-expanded {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 8px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 12px;
-  width: 300px;
-  padding: 16px;
 }
 </style>
