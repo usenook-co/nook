@@ -4,6 +4,7 @@ import './reset.css'
 import { ref, onMounted, onUnmounted, watch, provide } from 'vue'
 import Video from 'twilio-video'
 import ChatMessages from './components/ChatMessages.vue'
+import ChatInput from './components/ChatInput.vue'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
@@ -727,16 +728,12 @@ function openGifSelectorWindow() {
         <!-- Collapsed Chat Input -->
         <div class="chat-container" :class="{ 'chat-expanded': isChatExpanded }">
           <ChatMessages v-if="isChatExpanded" :messages="chatMessages" />
-          <div class="chat-input">
-            <input
-              v-model="chatMessage"
-              @keyup.enter="sendChatMessage"
-              @focus="handleChatFocus(true)"
-              @blur="handleChatBlur"
-              placeholder="Type a message..."
-              type="text"
-            />
-          </div>
+          <ChatInput
+            v-model="chatMessage"
+            @keyup:enter="sendChatMessage"
+            :onFocus="() => handleChatFocus(true)"
+            :onBlur="handleChatBlur"
+          />
         </div>
 
         <button @click="toggleScreenShare" class="screen-share-button" :class="{ active: isScreenSharing }">
