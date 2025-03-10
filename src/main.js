@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, clipboard, screen } from 'electron'
 import path from 'node:path'
 import { spawn } from 'child_process'
 import started from 'electron-squirrel-startup'
@@ -16,154 +16,72 @@ let mainWindow = null
 let windowPos = { x: 0, y: 0 }
 let gifSelectorWindow = null
 
-// Update the GIF selector preload path definition to make sure it's resolved properly
-const gifSelectorPreloadPath = path.join(__dirname, 'gifSelectorPreload.js')
+// Use a single preload script for all windows
+const preloadPath = path.join(__dirname, 'preload.js')
 
-ipcMain.on('startDrag', () => {
-  isDragging = true
-})
+// Mouse tracker setup - only create one mouse tracker for the entire app
+let mouseTracker = null
+let mouseTrackerInitialized = false
 
-ipcMain.on('stopDrag', () => {
-  isDragging = false
-})
-
-ipcMain.on('startResize', () => {
-  isResizing = true
-  initialBounds = mainWindow.getBounds()
-})
-
-ipcMain.on('stopResize', () => {
-  isResizing = false
-  initialBounds = null
-})
-
-if (started) {
-  app.quit()
-}
-
-function animateWindow(window, startBounds, endBounds, duration = 300) {
-  const startTime = Date.now()
-
-  const animate = () => {
-    const now = Date.now()
-    const elapsed = now - startTime
-    const progress = Math.min(elapsed / duration, 1)
-
-    // Ease out cubic function for smooth deceleration
-    const easeOut = 1 - Math.pow(1 - progress, 3)
-
-    const currentBounds = {
-      x: Math.round(startBounds.x + (endBounds.x - startBounds.x) * easeOut),
-      y: Math.round(startBounds.y + (endBounds.y - startBounds.y) * easeOut),
-      width: Math.round(startBounds.width + (endBounds.width - startBounds.width) * easeOut),
-      height: Math.round(startBounds.height + (endBounds.height - startBounds.height) * easeOut)
-    }
-
-    window.setBounds(currentBounds)
-
-    if (progress < 1) {
-      setTimeout(animate, 16) // roughly 60fps
-    } else {
-      // Animation complete, update tracking variables
-      windowPos = { x: endBounds.x, y: endBounds.y }
-      isDragging = false
-    }
-  }
-
-  animate()
-}
-
-function createWindow(hash = '') {
-  // Get saved position or use default centered position
-  const savedPosition = store.get('windowPosition')
-  const { width, height } = { width: 600, height: 300 }
-
-  // Get screen dimensions to ensure window is visible
-  const { screen } = require('electron')
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { workArea } = primaryDisplay
-
-  // Ensure saved position is within visible screen bounds
-  let x = savedPosition ? savedPosition.x : Math.round(workArea.x + (workArea.width - width) / 2)
-  let y = savedPosition ? savedPosition.y : Math.round(workArea.y + (workArea.height - height) / 2)
-
-  // Validate position is on screen
-  x = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width)
-  y = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height)
-
-  const win = new BrowserWindow({
-    width,
-    height,
-    x,
-    y,
+// Route-based window configuration
+const ROUTE_WINDOW_CONFIG = {
+  // Root and onboarding routes
+  '/': {
+    transparent: false,
+    frame: false,
+    backgroundColor: '#2A292E',
+    hasShadow: true,
+    minWidth: 350,
+    minHeight: 400,
+    alwaysOnTop: false,
+    width: 380,
+    height: 480
+  },
+  // Also apply to other onboarding routes
+  '/permission-check': {
+    transparent: false,
+    frame: false,
+    backgroundColor: '#2A292E',
+    hasShadow: true,
+    minWidth: 350,
+    minHeight: 400,
+    alwaysOnTop: false,
+    width: 380,
+    height: 580
+  },
+  '/room-selection': {
+    transparent: false,
+    frame: false,
+    backgroundColor: '#2A292E',
+    hasShadow: true,
+    minWidth: 350,
+    minHeight: 400,
+    alwaysOnTop: false,
+    width: 380,
+    height: 480
+  },
+  // Call route
+  '/call': {
     transparent: true,
     frame: false,
     backgroundColor: '#00000000',
     hasShadow: false,
+    minWidth: 400,
+    minHeight: 200,
     alwaysOnTop: true,
-    minWidth: 600,
-    minHeight: 300,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      enableRemoteModule: true,
-      webSecurity: true,
-      spellcheck: false,
-      sandbox: false
-    }
-  })
+    width: 600,
+    height: 300
+  }
+}
 
-  // Setup console logging for this window
-  setupWindowLogs(win, 'MainWindow')
+// Default route for initial window configuration
+const DEFAULT_ROUTE = '/'
+let currentRoute = DEFAULT_ROUTE
 
-  // Set 2:1 aspect ratio immediately after creation
-  win.setAspectRatio(2)
+function initializeMouseTracker() {
+  if (mouseTrackerInitialized) return
 
-  // Initialize window position tracking
-  const bounds = win.getBounds()
-  windowPos = { x: bounds.x, y: bounds.y }
-
-  // Save window position when it moves
-  win.on('moved', () => {
-    const position = win.getBounds()
-    store.set('windowPosition', { x: position.x, y: position.y })
-  })
-
-  // Enable screen capture
-  win.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write', 'screen', 'desktop-capture']
-    console.log('Permission requested:', permission)
-    if (allowedPermissions.includes(permission)) {
-      callback(true)
-    } else {
-      callback(false)
-    }
-  })
-
-  // Set default media permissions
-  win.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write', 'screen', 'desktop-capture']
-    console.log('Permission check:', permission)
-    return allowedPermissions.includes(permission)
-  })
-
-  // Request media access by default
-  win.webContents.session.setDevicePermissionHandler(details => {
-    console.log('Device permission requested:', details)
-    return true
-  })
-
-  // Enable media permissions
-  win.webContents.session.setDisplayMediaRequestHandler((request, callback) => {
-    console.log('Display media requested')
-    callback(true)
-  })
-
-  // Enable remote module access for this window
-  remote.enable(win.webContents)
-
-  const mouseTracker = spawn('./mouse_tracker')
+  mouseTracker = spawn('./mouse_tracker')
 
   mouseTracker.stdout.on('data', data => {
     try {
@@ -194,247 +112,319 @@ function createWindow(hash = '') {
         const deltaX = mouseX - lastMousePos.x
         const deltaY = mouseY - lastMousePos.y
 
-        windowPos.x += deltaX
-        windowPos.y += deltaY
-        win.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
-      }
+        lastMousePos.x = mouseX
+        lastMousePos.y = mouseY
 
-      lastMousePos = { x: mouseX, y: mouseY }
+        // Move main window if it exists and is not destroyed
+        try {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            windowPos.x += deltaX
+            windowPos.y += deltaY
+            mainWindow.setPosition(Math.round(windowPos.x), Math.round(windowPos.y))
+          }
+        } catch (error) {
+          console.error('Error moving window:', error)
+          // If we get an error, reset the dragging state
+          isDragging = false
+        }
+      }
     } catch (error) {
-      console.error('Error processing mouse data:', error.message, '\nRaw data:', data.toString())
+      console.error('Error processing mouse data:', error)
     }
   })
 
   mouseTracker.stderr.on('data', data => {
-    console.error('Mouse tracker error:', data.toString())
+    console.error(`Mouse tracker stderr: ${data}`)
   })
 
-  mouseTracker.on('error', error => {
-    console.error('Failed to start mouse tracker:', error)
+  mouseTracker.on('close', code => {
+    console.log(`Mouse tracker process exited with code ${code}`)
+    mouseTrackerInitialized = false
   })
 
-  win.on('closed', () => {
-    mouseTracker.kill()
-  })
-
-  const url = MAIN_WINDOW_VITE_DEV_SERVER_URL
-    ? MAIN_WINDOW_VITE_DEV_SERVER_URL + hash
-    : path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)
-
-  console.log('Loading URL:', url, 'with hash:', hash)
-
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    win.loadURL(url)
-  } else {
-    win.loadFile(url, { hash })
-  }
-
-  return win
+  mouseTrackerInitialized = true
 }
 
-// Add IPC handler for creating new windows
-ipcMain.on('createInitiatorWindow', () => {
-  console.log('Creating initiator window')
-  createWindow('#init')
+// Handle dragging events
+ipcMain.on('startDrag', () => {
+  isDragging = true
+
+  // Update last mouse position
+  const mousePos = screen.getCursorScreenPoint()
+  lastMousePos = { x: mousePos.x, y: mousePos.y }
 })
 
-app.whenReady().then(() => {
-  mainWindow = createWindow()
+ipcMain.on('stopDrag', () => {
+  isDragging = false
+})
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow()
+// Create or update window based on route
+function createOrUpdateWindow(route = null, url = null) {
+  // Save current route
+  if (route) {
+    // Make sure route starts with '/' for lookup
+    const routePath = route.startsWith('/') ? route : `/${route}`
+    currentRoute = routePath
+  }
+
+  try {
+    // Get current position and state
+    let currentPosition = null
+    let shouldFocus = false
+    let currentHash = null
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      currentPosition = mainWindow.getBounds()
+      shouldFocus = mainWindow.isFocused()
+
+      // Extract hash from current URL if available
+      if (url) {
+        const hashMatch = url.match(/#(.*)$/)
+        if (hashMatch) {
+          currentHash = hashMatch[1]
+        }
+      }
+
+      // Clean up the old window
+      mainWindow.removeAllListeners()
+      mainWindow.close()
+      mainWindow = null
     }
-  })
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
+    // Get screen dimensions
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { workArea } = primaryDisplay
+
+    // Get window config based on route, with fallback to default
+    const config = ROUTE_WINDOW_CONFIG[currentRoute] || ROUTE_WINDOW_CONFIG[DEFAULT_ROUTE]
+
+    // Calculate position - default to center screen or use previous position
+    const x = currentPosition ? currentPosition.x : Math.round(workArea.x + (workArea.width - config.width) / 2)
+    const y = currentPosition ? currentPosition.y : Math.round(workArea.y + (workArea.height - config.height) / 2)
+
+    // Create config with correct position and webPreferences
+    const windowConfig = {
+      ...config,
+      x,
+      y,
+      webPreferences: {
+        preload: preloadPath,
+        nodeIntegration: false,
+        contextIsolation: true,
+        enableRemoteModule: true,
+        webSecurity: true,
+        spellcheck: false,
+        sandbox: false
+      }
+    }
+
+    // Create the window
+    mainWindow = new BrowserWindow(windowConfig)
+
+    // Initialize position tracking
+    windowPos = { x: windowConfig.x, y: windowConfig.y }
+
+    // Setup console logging
+    setupWindowLogs(mainWindow, 'MainWindow')
+
+    // Save window position when it moves
+    mainWindow.on('moved', () => {
+      const position = mainWindow.getBounds()
+      windowPos = { x: position.x, y: position.y }
+      store.set('windowPosition', { x: position.x, y: position.y })
+    })
+
+    // Set permissions for media access
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      const allowedPermissions = ['media', 'clipboard-read', 'clipboard-write', 'screen', 'desktop-capture']
+      if (allowedPermissions.includes(permission)) {
+        callback(true)
+      } else {
+        callback(false)
+      }
+    })
+
+    // Enable remote module
+    remote.enable(mainWindow.webContents)
+
+    // If in call mode, set aspect ratio
+    if (currentRoute === '/call') {
+      mainWindow.setAspectRatio(2)
+    }
+
+    // Enable mouse tracking
+    initializeMouseTracker()
+
+    // Load the URL
+    if (!url) {
+      url = MAIN_WINDOW_VITE_DEV_SERVER_URL
+        ? MAIN_WINDOW_VITE_DEV_SERVER_URL
+        : `file://${MAIN_WINDOW_VITE_DIST_DIRECTORY}/index.html`
+    }
+
+    // Handle URL construction with hash
+    if (currentHash) {
+      // If we have a hash from previous URL, use it
+      url = url.split('#')[0] + '#' + currentHash
+      console.log(`Using existing hash: ${currentHash}`)
+    } else if (currentRoute !== DEFAULT_ROUTE && !url.includes('#')) {
+      // If no hash but we have a specific route, add it
+      // For Vue Router, a route of '/call' should become '#/call'
+      url = `${url}#${currentRoute}`
+      console.log(`Created new hash for route: ${currentRoute}`)
+    }
+
+    console.log('Loading URL:', url)
+    mainWindow.loadURL(url)
+
+    // Focus if needed
+    if (shouldFocus) {
+      mainWindow.focus()
+    }
+
+    return mainWindow
+  } catch (error) {
+    console.error('Error creating/updating window:', error)
+    return null
+  }
+}
+
+// IPC handlers for window route changes - now uses event-driven approach
+ipcMain.handle('setWindowForRoute', async (event, route) => {
+  try {
+    // Ensure the route has a leading slash for consistency
+    const normalizedRoute = route.startsWith('/') ? route : `/${route}`
+    console.log(`setWindowForRoute called with route: ${normalizedRoute}`)
+
+    // Skip recreation if already in the requested route
+    if (currentRoute === normalizedRoute && mainWindow && !mainWindow.isDestroyed()) {
+      console.log(`Window already in ${normalizedRoute} route, skipping recreation`)
+      return true
+    }
+
+    // Request route change in renderer first
+    // The renderer will call 'route-navigated' when navigation is complete
+    return requestRouteChange(normalizedRoute)
+  } catch (error) {
+    console.error('Error setting window for route:', error)
+    return false
   }
 })
 
-// Add this with other IPC handlers
+// Get current route
+ipcMain.handle('getCurrentRoute', () => {
+  return currentRoute
+})
+
+ipcMain.handle('setAspectRatio', async (event, ratio) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+
+  try {
+    if (currentRoute === '/call') {
+      mainWindow.setAspectRatio(ratio)
+      return true
+    }
+    return false
+  } catch (error) {
+    console.error('Error setting aspect ratio:', error)
+    return false
+  }
+})
+
+ipcMain.handle('setWindowSize', async (event, width, height, maintainCenter = false) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+
+  try {
+    const bounds = mainWindow.getBounds()
+
+    let newX = bounds.x
+    let newY = bounds.y
+
+    if (maintainCenter) {
+      newX = Math.round(bounds.x + (bounds.width - width) / 2)
+      newY = Math.round(bounds.y + (bounds.height - height) / 2)
+    }
+
+    mainWindow.setBounds({ x: newX, y: newY, width, height })
+    return true
+  } catch (error) {
+    console.error('Error setting window size:', error)
+    return false
+  }
+})
+
+// Handle clipboard access
 ipcMain.handle('writeToClipboard', async (event, text) => {
   try {
     clipboard.writeText(text)
-    return { success: true }
+    return true
   } catch (error) {
     console.error('Error writing to clipboard:', error)
-    return { success: false, error: error.message }
+    return false
   }
 })
 
-// Add this with other IPC handlers
-ipcMain.handle('setWindowSize', async (event, width, height, maintainCenter) => {
-  const window = BrowserWindow.fromWebContents(event.sender)
-  if (window) {
-    const currentBounds = window.getBounds()
-    const newWidth = Math.max(width, 400)
-    const newHeight = Math.max(height, 200)
-
-    if (maintainCenter) {
-      const deltaWidth = newWidth - currentBounds.width
-      const newX = currentBounds.x - deltaWidth / 2
-      const endBounds = {
-        x: Math.round(newX),
-        y: currentBounds.y,
-        width: newWidth,
-        height: newHeight
-      }
-      animateWindow(window, currentBounds, endBounds)
-    } else {
-      const endBounds = {
-        x: currentBounds.x,
-        y: currentBounds.y,
-        width: newWidth,
-        height: newHeight
-      }
-      animateWindow(window, currentBounds, endBounds)
-    }
-  }
-})
-
-// Add this with other IPC handlers
-ipcMain.handle('setAspectRatio', async (event, ratio) => {
-  const window = BrowserWindow.fromWebContents(event.sender)
-  if (window) {
-    // Set aspect ratio first
-    window.setAspectRatio(ratio)
-
-    // Get current bounds after aspect ratio is set
-    const currentBounds = window.getBounds()
-    // Calculate new width based on current height and ratio
-    const newWidth = Math.max(currentBounds.height * ratio, 400)
-    const deltaWidth = newWidth - currentBounds.width
-    const newX = currentBounds.x - deltaWidth / 2
-
-    const endBounds = {
-      x: Math.round(newX),
-      y: currentBounds.y,
-      width: newWidth,
-      height: currentBounds.height
-    }
-
-    animateWindow(window, currentBounds, endBounds)
-  }
-})
-
-// Add this with other IPC handlers
-ipcMain.handle('setAlwaysOnTop', async (event, value) => {
-  const window = BrowserWindow.fromWebContents(event.sender)
-  if (window) {
-    window.setAlwaysOnTop(value)
-  }
-})
-
-// Simplify the openGifSelector handler
-ipcMain.handle('openGifSelector', async event => {
-  console.log('openGifSelector called')
-
-  // If window already exists, just focus it and return
+// Setup GIF selector window
+function openGifSelectorWindow() {
   if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
     gifSelectorWindow.focus()
     return true
   }
 
-  try {
-    const parentWindow = BrowserWindow.fromWebContents(event.sender)
-    const parentBounds = parentWindow.getBounds()
+  // Create GIF selector window
+  const parentBounds = mainWindow.getBounds()
 
-    // Create the GIF selector window with simpler configuration
-    gifSelectorWindow = new BrowserWindow({
-      width: 400,
-      height: 600,
-      frame: false,
-      backgroundColor: '#121212',
-      parent: parentWindow,
-      modal: false,
-      webPreferences: {
-        preload: gifSelectorPreloadPath,
-        contextIsolation: true,
-        nodeIntegration: false
-      }
-    })
-
-    // Center on parent
-    const childBounds = gifSelectorWindow.getBounds()
-    gifSelectorWindow.setBounds({
-      x: Math.floor(parentBounds.x + (parentBounds.width - childBounds.width) / 2),
-      y: Math.floor(parentBounds.y + (parentBounds.height - childBounds.height) / 2),
-      width: childBounds.width,
-      height: childBounds.height
-    })
-
-    // Setup console logging
-    setupWindowLogs(gifSelectorWindow, 'GifSelector')
-
-    // Log the resolved preload path
-    console.log('Using GIF selector preload path:', gifSelectorPreloadPath)
-
-    // Determine URL based on environment
-    const url = MAIN_WINDOW_VITE_DEV_SERVER_URL
-      ? MAIN_WINDOW_VITE_DEV_SERVER_URL + '#gif-selector'
-      : path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html#gif-selector`)
-
-    console.log('Loading GIF selector URL:', url)
-
-    // Load the URL more simply
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-      gifSelectorWindow.loadURL(url)
-    } else {
-      gifSelectorWindow.loadFile(url.split('#')[0], { hash: 'gif-selector' })
+  gifSelectorWindow = new BrowserWindow({
+    width: 400,
+    height: 600,
+    x: parentBounds.x + parentBounds.width + 20,
+    y: parentBounds.y,
+    transparent: false,
+    frame: false,
+    backgroundColor: '#121212',
+    parent: mainWindow,
+    modal: false,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false
     }
+  })
 
-    // Show window when ready
-    gifSelectorWindow.once('ready-to-show', () => {
-      if (!gifSelectorWindow.isDestroyed()) {
-        gifSelectorWindow.show()
-      }
-    })
+  // Setup console logging for this window
+  setupWindowLogs(gifSelectorWindow, 'GifSelector')
 
-    // Close when parent is closed
-    parentWindow.once('closed', () => {
-      if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
-        gifSelectorWindow.close()
-        gifSelectorWindow = null
-      }
-    })
+  // Enable remote module access for this window
+  remote.enable(gifSelectorWindow.webContents)
 
-    // Add blur event to close window when clicking outside
-    gifSelectorWindow.on('blur', () => {
-      if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
-        gifSelectorWindow.close()
-        gifSelectorWindow = null
-      }
-    })
+  // Determine URL based on environment
+  const url = MAIN_WINDOW_VITE_DEV_SERVER_URL
+    ? MAIN_WINDOW_VITE_DEV_SERVER_URL + '#/gif-selector'
+    : `file://${MAIN_WINDOW_VITE_DIST_DIRECTORY}/index.html#/gif-selector`
 
-    // Open DevTools in development mode
-    if (process.env.NODE_ENV === 'development') {
-      gifSelectorWindow.webContents.openDevTools({ mode: 'detach' })
+  // Load the GIF selector
+  gifSelectorWindow.loadURL(url)
+
+  // Close GIF selector when it loses focus
+  gifSelectorWindow.on('blur', () => {
+    if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+      gifSelectorWindow.close()
+      gifSelectorWindow = null
     }
+  })
 
-    return true
-  } catch (err) {
-    console.error('Error opening GIF selector:', err)
-    return false
-  }
+  return true
+}
+
+// Handle IPC events for the GIF selector
+ipcMain.handle('openGifSelector', async () => {
+  return openGifSelectorWindow()
 })
 
-// Simplify the closeGifSelector handler
-ipcMain.handle('closeGifSelector', (event, gifUrl) => {
-  console.log('closeGifSelector called', gifUrl ? 'with GIF URL' : '')
-
-  // If a GIF URL was provided, notify the main window
-  if (gifUrl) {
-    try {
-      const mainWindow = BrowserWindow.getAllWindows().find(win => win !== gifSelectorWindow && !win.isDestroyed())
-      if (mainWindow) {
-        mainWindow.webContents.send('gifSelected', gifUrl)
-      }
-    } catch (err) {
-      console.error('Error sending selected GIF to main window:', err)
-    }
+ipcMain.handle('closeGifSelector', async (event, gifUrl) => {
+  // Send the selected GIF data to main window
+  if (gifUrl && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('gifSelected', gifUrl)
   }
 
   // Close the GIF selector window
@@ -442,58 +432,116 @@ ipcMain.handle('closeGifSelector', (event, gifUrl) => {
     gifSelectorWindow.close()
     gifSelectorWindow = null
   }
+
   return true
 })
 
-// Simplify the selectGif handler
-ipcMain.handle('selectGif', (event, gifUrl) => {
-  console.log('selectGif called with URL:', gifUrl)
+ipcMain.handle('selectGif', async (event, gifUrl) => {
+  // Send the selected GIF data to main window
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('gifSelected', gifUrl)
+  }
+
+  // Close the GIF selector window
+  if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
+    gifSelectorWindow.close()
+    gifSelectorWindow = null
+  }
+
+  return true
+})
+
+// Add setAlwaysOnTop handler
+ipcMain.handle('setAlwaysOnTop', async (event, value) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+
   try {
-    // Find the main window (not the GIF selector)
-    const mainWindow = BrowserWindow.getAllWindows().find(win => win !== gifSelectorWindow && !win.isDestroyed())
-
-    if (mainWindow) {
-      mainWindow.webContents.send('gifSelected', gifUrl)
-
-      // Close the GIF selector window
-      if (gifSelectorWindow && !gifSelectorWindow.isDestroyed()) {
-        gifSelectorWindow.close()
-        gifSelectorWindow = null
-      }
-
-      return true
-    } else {
-      console.error('No main window found for GIF selection')
-      return false
-    }
-  } catch (err) {
-    console.error('Error in selectGif handler:', err)
+    mainWindow.setAlwaysOnTop(value)
+    return true
+  } catch (error) {
+    console.error('Error setting always on top:', error)
     return false
   }
 })
 
-// Add this function near the top of the file, after imports
+// Set up window console logging
 function setupWindowLogs(window, windowName) {
   window.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    const levels = ['log', 'warn', 'error', 'info', 'debug']
-    const prefix = `[${windowName}]`
-    const levelName = levels[level] || 'log'
+    const levels = ['verbose', 'info', 'warning', 'error']
+    const prefix = `[${windowName}] `
 
-    switch (levelName) {
-      case 'warn':
-        console.warn(prefix, message)
+    switch (level) {
+      case 0:
+        console.log(prefix + message)
         break
-      case 'error':
-        console.error(prefix, message)
+      case 1:
+        console.info(prefix + message)
         break
-      case 'info':
-        console.info(prefix, message)
+      case 2:
+        console.warn(prefix + message)
         break
-      case 'debug':
-        console.debug(prefix, message)
+      case 3:
+        console.error(prefix + message)
         break
-      default:
-        console.log(prefix, message)
     }
   })
+}
+
+// Main app initialization
+app.whenReady().then(() => {
+  try {
+    // Initialize mouse tracker
+    initializeMouseTracker()
+
+    // Create initial window in onboarding state
+    createOrUpdateWindow(currentRoute)
+
+    // Listen for window activation events (macOS dock clicks)
+    app.on('activate', function () {
+      // On macOS it's common to re-create a window in the app when the
+      // dock icon is clicked and there are no other windows open.
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createOrUpdateWindow(currentRoute)
+      } else if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.show()
+      }
+    })
+  } catch (error) {
+    console.error('Error during app initialization:', error)
+    // Try to create fallback window if something goes wrong
+    try {
+      createOrUpdateWindow(currentRoute)
+    } catch (e) {
+      console.error('Failed to create fallback window:', e)
+    }
+  }
+})
+
+app.on('window-all-closed', function () {
+  if (process.platform !== 'darwin') app.quit()
+})
+
+// IPC handlers for route navigation coordination
+ipcMain.on('route-navigated', (event, route) => {
+  try {
+    console.log(`App navigated to route: ${route}, updating window configuration`)
+
+    // Normalize route format
+    const normalizedRoute = route.startsWith('/') ? route : `/${route}`
+
+    // Now we can safely update the window configuration after the navigation happened
+    createOrUpdateWindow(normalizedRoute)
+  } catch (error) {
+    console.error('Error handling route navigation:', error)
+  }
+})
+
+// This allows requesting a route change from main to renderer
+function requestRouteChange(route) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    console.log(`Requesting route change to: ${route}`)
+    mainWindow.webContents.send('route-change-requested', route)
+    return true
+  }
+  return false
 }

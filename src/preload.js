@@ -5,17 +5,32 @@ const { contextBridge, ipcRenderer, shell } = require('electron')
 const { desktopCapturer } = require('@electron/remote')
 
 contextBridge.exposeInMainWorld('electron', {
+  // Window management
   startDrag: () => ipcRenderer.send('startDrag'),
   stopDrag: () => ipcRenderer.send('stopDrag'),
-  startResize: () => ipcRenderer.send('startResize'),
-  stopResize: () => ipcRenderer.send('stopResize'),
-  openExternal: url => shell.openExternal(url),
-  createInitiatorWindow: () => ipcRenderer.send('createInitiatorWindow'),
-  writeToClipboard: text => ipcRenderer.invoke('writeToClipboard', text),
+
+  // Route-based window API
+  setWindowForRoute: route => ipcRenderer.invoke('setWindowForRoute', route),
+  getCurrentRoute: () => ipcRenderer.invoke('getCurrentRoute'),
+
+  // Navigation event system
+  notifyRouteNavigated: route => ipcRenderer.send('route-navigated', route),
+  onRouteChangeRequested: callback => {
+    // Remove any existing listeners to avoid duplicates
+    ipcRenderer.removeAllListeners('route-change-requested')
+    // Add the new callback
+    ipcRenderer.on('route-change-requested', (event, route) => {
+      callback(route)
+    })
+  },
+
+  setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio),
   setWindowSize: (width, height, maintainCenter = false) =>
     ipcRenderer.invoke('setWindowSize', width, height, maintainCenter),
-  setAspectRatio: ratio => ipcRenderer.invoke('setAspectRatio', ratio),
   setAlwaysOnTop: value => ipcRenderer.invoke('setAlwaysOnTop', value),
+  writeToClipboard: text => ipcRenderer.invoke('writeToClipboard', text),
+
+  // Screen sharing
   getScreenSources: async () => {
     try {
       return await desktopCapturer.getSources({ types: ['screen', 'window'] })
@@ -24,6 +39,8 @@ contextBridge.exposeInMainWorld('electron', {
       throw err
     }
   },
+
+  // GIF selector functions
   openGifSelector: () => ipcRenderer.invoke('openGifSelector'),
   onGifSelected: callback => {
     // Remove any existing listeners to avoid duplicates
@@ -33,7 +50,22 @@ contextBridge.exposeInMainWorld('electron', {
       console.log('GIF selected event received in preload:', gifUrl)
       callback(gifUrl)
     })
-  }
+  },
+  closeGifSelector: gifUrl => {
+    console.log('Calling closeGifSelector from preload', gifUrl ? 'with GIF URL' : '')
+    return ipcRenderer.invoke('closeGifSelector', gifUrl).catch(err => {
+      console.error('Error in closeGifSelector:', err)
+    })
+  },
+  selectGif: gifUrl => {
+    console.log('Calling selectGif from preload with URL:', gifUrl)
+    return ipcRenderer.invoke('selectGif', gifUrl).catch(err => {
+      console.error('Error in selectGif:', err)
+    })
+  },
+
+  // External link handling
+  openExternal: url => shell.openExternal(url)
 })
 
-console.log('Main window preload script completed')
+console.log('Preload script completed')

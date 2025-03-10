@@ -1,6 +1,12 @@
 import { createApp } from 'vue'
+import { createRouter, createWebHashHistory } from 'vue-router'
+import Root from './components/Root.vue'
 import App from './App.vue'
 import GifSelectorWindow from './components/GifSelectorWindow.vue'
+import OnboardingLayout from './components/OnboardingLayout.vue'
+import PermissionCheck from './components/PermissionCheck.vue'
+import RoomSelection from './components/RoomSelection.vue'
+import './reset.css'
 
 // Check if we're in the GIF selector window
 const isGifSelector = window.location.hash === '#gif-selector'
@@ -38,8 +44,40 @@ if (isGifSelector) {
   const app = createApp(GifSelectorWindow)
   app.mount('#app')
 } else {
-  // Mount the main app
-  const app = createApp(App)
+  // Define routes for the main application
+  const routes = [
+    {
+      path: '/',
+      component: OnboardingLayout,
+      children: [
+        {
+          path: '',
+          name: 'permissionCheck',
+          component: PermissionCheck
+        },
+        {
+          path: 'room-selection',
+          name: 'roomSelection',
+          component: RoomSelection
+        }
+      ]
+    },
+    {
+      path: '/call',
+      name: 'call',
+      component: App
+    }
+  ]
+
+  // Create router instance
+  const router = createRouter({
+    history: createWebHashHistory(),
+    routes
+  })
+
+  // Mount the main app with router
+  const app = createApp(Root)
+  app.use(router)
   app.mount('#app')
 
   // Listen for messages from the GIF selector window

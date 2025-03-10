@@ -3,6 +3,7 @@ import './polyfills'
 import './reset.css'
 import { ref, onMounted, onUnmounted, watch, provide } from 'vue'
 import Video from 'twilio-video'
+import { useRouter } from 'vue-router'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
@@ -16,20 +17,23 @@ const isConnected = ref(false)
 const showOverlay = ref(true)
 const error = ref('')
 const roomName = ref('')
-const identity = ref(`user-${Math.random().toString(36).substring(7)}`)
-const isCreatingRoom = ref(false)
+const identity = ref('')
 const participants = ref(new Map())
 const participantGifs = ref(new Map()) // Add this to store GIFs for each participant
 const isScreenSharing = ref(false)
-const joinRoomInput = ref('')
-const isJoiningRoom = ref(false)
 const participantCount = ref(1)
 const wrapper = ref(null)
 const localStream = ref(null)
 const hasRemoteScreenShare = ref(false)
 const selectedGif = ref(null)
+const router = useRouter()
 
-function startDrag() {
+function startDrag(event) {
+  // Only enable drag on the wrapper area, not on controls
+  if (event.target.closest('button, input, video')) {
+    return
+  }
+
   if (window?.electron?.startDrag) {
     window.electron.startDrag()
   }
@@ -51,85 +55,79 @@ async function updateAspectRatio(count) {
   }
 }
 
-async function createRoom() {
-  try {
-    isCreatingRoom.value = true
-    roomName.value = `room-${Math.random().toString(36).substring(7)}`
-    await initializeVideo()
-
-    // Copy room name to clipboard for sharing
-    if (window?.electron?.writeToClipboard) {
-      await window.electron.writeToClipboard(roomName.value)
-      console.log('Room name copied to clipboard:', roomName.value)
-    }
-  } catch (err) {
-    error.value = 'Failed to create room'
-    console.error(err)
-  } finally {
-    isCreatingRoom.value = false
-  }
-}
-
-async function joinRoom() {
-  try {
-    if (!joinRoomInput.value) {
-      error.value = 'Please enter a room name'
-      return
-    }
-
-    isJoiningRoom.value = true
-    roomName.value = joinRoomInput.value
-    await initializeVideo()
-  } catch (err) {
-    error.value = 'Failed to join room'
-    console.error(err)
-  } finally {
-    isJoiningRoom.value = false
-  }
-}
-
 async function leaveRoom() {
-  if (isScreenSharing.value) {
-    if (twilioScreenTrack) {
-      try {
-        if (twilioLocalParticipant) {
-          await twilioLocalParticipant.unpublishTrack(twilioScreenTrack)
+  try {
+    // First clean up all resources
+    if (isScreenSharing.value) {
+      if (twilioScreenTrack) {
+        try {
+          if (twilioLocalParticipant) {
+            await twilioLocalParticipant.unpublishTrack(twilioScreenTrack)
+          }
+        } catch (e) {
+          console.error('Error unpublishing track:', e)
         }
-      } catch (e) {
-        console.error('Error unpublishing track:', e)
+
+        twilioScreenTrack.stop()
+        twilioScreenTrack = null
       }
-
-      twilioScreenTrack.stop()
-      twilioScreenTrack = null
+      isScreenSharing.value = false
     }
-    isScreenSharing.value = false
+
+    if (twilioRoom) {
+      twilioRoom.disconnect()
+      twilioRoom = null
+    }
+
+    twilioLocalParticipant = null
+
+    if (localStream.value) {
+      localStream.value.getTracks().forEach(track => track.stop())
+      localStream.value = null
+    }
+
+    participants.value.clear()
+    participantCount.value = 1
+
+    if (twilioDataTrack) {
+      twilioDataTrack.removeAllListeners()
+      twilioDataTrack = null
+    }
+
+    isConnected.value = false
+    showOverlay.value = true
+    roomName.value = ''
+
+    // Clear room data from localStorage
+    localStorage.removeItem('nook_room_name')
+    localStorage.removeItem('nook_identity')
+
+    // Navigate to the onboarding view and notify main process
+    try {
+      await router.push('/')
+
+      // Notify the main process that navigation is complete
+      if (window?.electron?.notifyRouteNavigated) {
+        window.electron.notifyRouteNavigated('/')
+      }
+    } catch (err) {
+      console.error('Error during navigation:', err)
+    }
+  } catch (error) {
+    console.error('Error leaving room:', error)
+
+    // Still try to navigate back to onboarding if there was an error
+    try {
+      await router.push('/')
+
+      // Notify the main process that navigation is complete
+      if (window?.electron?.notifyRouteNavigated) {
+        window.electron.notifyRouteNavigated('/')
+      }
+    } catch (navError) {
+      console.error('Error during error navigation:', navError)
+    }
   }
-
-  if (twilioRoom) {
-    twilioRoom.disconnect()
-    twilioRoom = null
-  }
-
-  twilioLocalParticipant = null
-
-  if (localStream.value) {
-    localStream.value.getTracks().forEach(track => track.stop())
-    localStream.value = null
-  }
-
-  participants.value.clear()
-  participantCount.value = 1
-
-  if (twilioDataTrack) {
-    twilioDataTrack.removeAllListeners()
-    twilioDataTrack = null
-  }
-
-  isConnected.value = false
-  showOverlay.value = true
-  roomName.value = ''
-  joinRoomInput.value = ''
-  participantGifs.value.clear() // Clear participant GIFs
 }
 
 async function getBestVideoDevice() {
@@ -545,26 +543,85 @@ function handleDirectGifSelection(gifUrl) {
   }
 }
 
-onMounted(() => {
-  // Don't auto-initialize video, wait for user action
-  showOverlay.value = true
-  // Set initial aspect ratio to 2:1
-  if (window?.electron?.setAspectRatio) {
-    window.electron.setAspectRatio(2)
-  }
-
-  // Add window message listener for direct GIF selection
-  window.addEventListener('message', event => {
-    if (event.data && event.data.type === 'gifSelected') {
-      console.log('Received GIF via postMessage:', event.data.gifUrl)
-      handleDirectGifSelection(event.data.gifUrl)
+onMounted(async () => {
+  try {
+    // Set up route change listener
+    if (window?.electron?.onRouteChangeRequested) {
+      window.electron.onRouteChangeRequested(route => {
+        console.log(`Route change requested to: ${route}`)
+        // Navigate to the requested route
+        router
+          .push(route)
+          .then(() => {
+            console.log(`Successfully navigated to: ${route}`)
+            // Notify main process that navigation is complete
+            if (window?.electron?.notifyRouteNavigated) {
+              window.electron.notifyRouteNavigated(route)
+            }
+          })
+          .catch(err => {
+            console.error(`Error navigating to route ${route}:`, err)
+          })
+      })
     }
-  })
 
-  // Listen for GIF selection from the separate window
-  window.electron.onGifSelected(gifUrl => {
-    selectedGif.value = gifUrl
-  })
+    // Check if we have room data in localStorage
+    const storedRoomName = localStorage.getItem('nook_room_name')
+    const storedIdentity = localStorage.getItem('nook_identity')
+
+    if (storedRoomName && storedIdentity) {
+      // We're coming from the onboarding flow, use the saved data
+      roomName.value = storedRoomName
+      identity.value = storedIdentity
+
+      try {
+        await initializeVideo()
+      } catch (err) {
+        console.error('Failed to initialize video with stored data:', err)
+        // Navigate back to onboarding if initialization fails
+        try {
+          await router.push('/')
+          if (window?.electron?.notifyRouteNavigated) {
+            window.electron.notifyRouteNavigated('/')
+          }
+        } catch (navError) {
+          console.error('Error navigating after failed init:', navError)
+        }
+      }
+    } else {
+      // If we don't have room data, we should not be on this page
+      try {
+        await router.push('/')
+        if (window?.electron?.notifyRouteNavigated) {
+          window.electron.notifyRouteNavigated('/')
+        }
+      } catch (navError) {
+        console.error('Error navigating from invalid state:', navError)
+      }
+    }
+
+    // Set initial aspect ratio to 2:1
+    if (window?.electron?.setAspectRatio) {
+      window.electron.setAspectRatio(2)
+    }
+
+    // Add window message listener for direct GIF selection
+    window.addEventListener('message', event => {
+      if (event.data && event.data.type === 'gifSelected') {
+        console.log('Received GIF via postMessage:', event.data.gifUrl)
+        handleDirectGifSelection(event.data.gifUrl)
+      }
+    })
+
+    // Listen for GIF selection from the separate window
+    window.electron.onGifSelected(gifUrl => {
+      selectedGif.value = gifUrl
+    })
+  } catch (error) {
+    console.error('Error during component initialization:', error)
+    // Handle initialization errors
+    router.push('/')
+  }
 })
 
 onUnmounted(() => {
@@ -643,25 +700,7 @@ function openGifSelectorWindow() {
 
       <div v-if="showOverlay" class="overlay">
         <div class="overlay-content" v-if="!isConnected">
-          <div class="room-actions">
-            <button @click="createRoom" :disabled="isCreatingRoom" class="action-button">
-              {{ isCreatingRoom ? 'Creating Room...' : 'Create New Room' }}
-            </button>
-
-            <div class="divider">or</div>
-
-            <div class="join-room">
-              <input
-                v-model="joinRoomInput"
-                placeholder="Enter room name"
-                class="room-input"
-                :disabled="isJoiningRoom"
-              />
-              <button @click="joinRoom" :disabled="isJoiningRoom || !joinRoomInput" class="action-button">
-                {{ isJoiningRoom ? 'Joining...' : 'Join Room' }}
-              </button>
-            </div>
-          </div>
+          <div class="connecting-message">Connecting to room...</div>
         </div>
       </div>
 
@@ -789,63 +828,9 @@ function openGifSelectorWindow() {
   z-index: 101;
 }
 
-.room-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  align-items: center;
-}
-
-.action-button {
-  background: #4caf50;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s;
-  width: 100%;
-}
-
-.action-button:hover:not(:disabled) {
-  background: #45a049;
-}
-
-.action-button:disabled {
-  background: #666;
-  cursor: not-allowed;
-}
-
-.divider {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 14px;
-}
-
-.join-room {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.room-input {
-  padding: 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
+.connecting-message {
   color: white;
   font-size: 14px;
-  width: 100%;
-}
-
-.room-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.room-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .room-info {
