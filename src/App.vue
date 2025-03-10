@@ -28,6 +28,8 @@ const wrapper = ref(null)
 const localStream = ref(null)
 const hasRemoteScreenShare = ref(false)
 const selectedGif = ref(null)
+const chatMessage = ref('')
+const chatMessages = ref([])
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -130,6 +132,7 @@ async function leaveRoom() {
   roomName.value = ''
   joinRoomInput.value = ''
   participantGifs.value.clear() // Clear participant GIFs
+  chatMessages.value = [] // Clear chat messages
 }
 
 async function getBestVideoDevice() {
@@ -376,6 +379,9 @@ function handleDataTrackSubscribed(track, participant) {
       if (message.type === 'gif') {
         console.log('Received GIF from participant:', participant.identity, message.url)
         participantGifs.value.set(participant.sid, message.url)
+      } else if (message.type === 'chat') {
+        console.log('Received chat message:', message)
+        chatMessages.value.push(message)
       }
     } catch (err) {
       console.error('Error parsing data track message:', err)
@@ -545,6 +551,25 @@ function handleDirectGifSelection(gifUrl) {
   }
 }
 
+function sendChatMessage() {
+  if (!chatMessage.value.trim() || !twilioDataTrack) return
+
+  const messageData = {
+    type: 'chat',
+    message: chatMessage.value,
+    sender: identity.value,
+    timestamp: Date.now()
+  }
+
+  twilioDataTrack.send(JSON.stringify(messageData))
+
+  // Add message to local chat
+  chatMessages.value.push(messageData)
+
+  // Clear input
+  chatMessage.value = ''
+}
+
 onMounted(() => {
   // Don't auto-initialize video, wait for user action
   showOverlay.value = true
@@ -671,6 +696,20 @@ function openGifSelectorWindow() {
           {{ isScreenSharing ? 'Stop Sharing' : 'Share Screen' }}
         </button>
         <button @click="leaveRoom" class="leave-button">Leave Room</button>
+      </div>
+
+      <!-- Chat UI -->
+      <div v-if="isConnected" class="chat-container">
+        <div class="chat-messages">
+          <div v-for="(msg, index) in chatMessages" :key="index" class="chat-message">
+            <span class="chat-sender">{{ msg.sender }}:</span>
+            <span class="chat-text">{{ msg.message }}</span>
+          </div>
+        </div>
+        <div class="chat-input">
+          <input v-model="chatMessage" @keyup.enter="sendChatMessage" placeholder="Type a message..." type="text" />
+          <button @click="sendChatMessage">Send</button>
+        </div>
       </div>
     </div>
   </div>
@@ -949,5 +988,66 @@ function openGifSelectorWindow() {
 
 .local-avatar:hover .remove-gif-indicator {
   opacity: 1;
+}
+
+.chat-container {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  min-width: 200px;
+  min-height: 200px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-message {
+  color: white;
+  font-size: 14px;
+}
+
+.chat-sender {
+  font-weight: bold;
+  color: #4caf50;
+  margin-right: 8px;
+}
+
+.chat-input {
+  padding: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.chat-input button {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.chat-input button:hover {
+  background: #45a049;
 }
 </style>
