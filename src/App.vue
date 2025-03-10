@@ -31,6 +31,8 @@ const selectedGif = ref(null)
 const chatMessage = ref('')
 const chatMessages = ref([])
 const isChatExpanded = ref(false)
+const chatInputRef = ref(null)
+let isClickingInside = false
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -571,8 +573,22 @@ function sendChatMessage() {
   chatMessage.value = ''
 }
 
+function handleChatContainerClick(event) {
+  isClickingInside = true
+  // Prevent the event from bubbling up
+  event.stopPropagation()
+}
+
 function handleChatFocus(focused) {
   isChatExpanded.value = focused
+}
+
+function handleChatBlur() {
+  // Only collapse if we're not clicking inside the container
+  if (!isClickingInside) {
+    isChatExpanded.value = false
+  }
+  isClickingInside = false
 }
 
 onMounted(() => {
@@ -595,6 +611,14 @@ onMounted(() => {
   window.electron.onGifSelected(gifUrl => {
     selectedGif.value = gifUrl
   })
+
+  document.addEventListener('mousedown', event => {
+    const chatContainer = document.querySelector('.chat-container')
+    if (chatContainer && !chatContainer.contains(event.target)) {
+      isClickingInside = false
+      isChatExpanded.value = false
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -606,6 +630,7 @@ onUnmounted(() => {
   })
 
   leaveRoom()
+  document.removeEventListener('mousedown', () => {})
 })
 
 function handleAvatarClick() {
@@ -704,7 +729,12 @@ function openGifSelectorWindow() {
       </div>
 
       <!-- Chat UI -->
-      <div v-if="isConnected" class="chat-container" :class="{ 'chat-expanded': isChatExpanded }">
+      <div
+        v-if="isConnected"
+        class="chat-container"
+        :class="{ 'chat-expanded': isChatExpanded }"
+        @mousedown.stop="handleChatContainerClick"
+      >
         <div class="chat-messages">
           <div v-for="(msg, index) in chatMessages" :key="index" class="chat-message">
             <span class="chat-sender">{{ msg.sender }}:</span>
@@ -716,7 +746,7 @@ function openGifSelectorWindow() {
             v-model="chatMessage"
             @keyup.enter="sendChatMessage"
             @focus="handleChatFocus(true)"
-            @blur="handleChatFocus(false)"
+            @blur="handleChatBlur"
             placeholder="Type a message..."
             type="text"
           />
