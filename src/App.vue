@@ -740,7 +740,6 @@ function openGifSelectorWindow() {
               placeholder="Type a message..."
               type="text"
             />
-            <button @click="sendChatMessage">Send</button>
           </div>
         </div>
 
