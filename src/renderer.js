@@ -7,6 +7,7 @@ import OnboardingLayout from './components/OnboardingLayout.vue'
 import PermissionCheck from './components/PermissionCheck.vue'
 import RoomSelection from './components/RoomSelection.vue'
 import './reset.css'
+import './style.css'
 
 // Check if we're in the GIF selector window
 const isGifSelector = window.location.hash === '#gif-selector'

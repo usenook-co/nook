@@ -185,18 +185,15 @@ onMounted(() => {
   display: flex;
   align-items: center;
   padding: 1rem;
-  background-color: rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   transition: all 0.3s ease;
 }
 
 .permission-item.granted {
-  background-color: rgba(76, 175, 80, 0.2);
   border-left: 4px solid #4caf50;
 }
 
 .permission-item.denied {
-  background-color: rgba(244, 67, 54, 0.2);
   border-left: 4px solid #f44336;
 }
 
@@ -262,14 +259,6 @@ onMounted(() => {
   color: white;
   width: 100%;
   font-size: 0.9rem;
-}
-
-.request-button {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-.request-button:hover {
-  background-color: rgba(255, 255, 255, 0.3);
 }
 
 .continue-button {

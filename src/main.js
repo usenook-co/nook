@@ -23,14 +23,17 @@ const preloadPath = path.join(__dirname, 'preload.js')
 let mouseTracker = null
 let mouseTrackerInitialized = false
 
+const DEFAULT_WINDOW_CONFIG = {
+  frame: false,
+  backgroundColor: 'black',
+  transparent: false,
+  hasShadow: false
+}
+
 // Route-based window configuration
 const ROUTE_WINDOW_CONFIG = {
   // Root and onboarding routes
   '/': {
-    transparent: false,
-    frame: false,
-    backgroundColor: '#2A292E',
-    hasShadow: true,
     minWidth: 350,
     minHeight: 400,
     alwaysOnTop: false,
@@ -39,10 +42,6 @@ const ROUTE_WINDOW_CONFIG = {
   },
   // Also apply to other onboarding routes
   '/permission-check': {
-    transparent: false,
-    frame: false,
-    backgroundColor: '#2A292E',
-    hasShadow: true,
     minWidth: 350,
     minHeight: 400,
     alwaysOnTop: false,
@@ -50,9 +49,7 @@ const ROUTE_WINDOW_CONFIG = {
     height: 580
   },
   '/room-selection': {
-    transparent: false,
-    frame: false,
-    backgroundColor: '#2A292E',
+    transparent: true,
     hasShadow: true,
     minWidth: 350,
     minHeight: 400,
@@ -204,9 +201,11 @@ function createOrUpdateWindow(route = null, url = null) {
 
     // Create config with correct position and webPreferences
     const windowConfig = {
+      ...DEFAULT_WINDOW_CONFIG,
       ...config,
       x,
       y,
+      frame: false,
       webPreferences: {
         preload: preloadPath,
         nodeIntegration: false,
@@ -379,9 +378,7 @@ function openGifSelectorWindow() {
     height: 600,
     x: parentBounds.x + parentBounds.width + 20,
     y: parentBounds.y,
-    transparent: false,
     frame: false,
-    backgroundColor: '#121212',
     parent: mainWindow,
     modal: false,
     webPreferences: {

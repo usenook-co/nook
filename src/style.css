@@ -1,0 +1,144 @@
+@font-face {
+  font-family: 'Anja';
+  src: url('/fonts/anja/anja.ttf') format('truetype');
+}
+
+:root {
+  --background-color:rgb(29, 32, 35);
+  --gradient-start: #48d7ff;
+  --gradient-end: #6453fb;
+  --iron:rgb(98, 117, 159);
+}
+
+button,
+input {
+  cursor: pointer;
+}
+
+html {
+  background-color: var(--background-color);
+}
+
+body {
+  color: var(--iron);
+}
+
+button {
+  padding: 0.8rem 1.5rem;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  color: white;
+  width: 100%;
+  font-size: 0.9rem;
+  position: relative;
+  background: transparent;
+  color: transparent;
+  background-clip: text;
+  -webkit-background-clip: text;
+  background-image: linear-gradient(90deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+  transition: color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 1rem;
+}
+
+button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 1rem;
+  background: linear-gradient(90deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 1;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 3px;
+  box-sizing: border-box;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 1rem;
+  background: linear-gradient(90deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+  opacity: 0;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: -1;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--gradient-end) 30%, transparent);
+}
+
+button:hover:not(:disabled) {
+  color: #263168;
+}
+
+button:hover:not(:disabled)::before {
+  opacity: 0;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  box-sizing: border-box;
+}
+
+button:hover:not(:disabled)::after {
+  opacity: 1;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.logo-text {
+  font-family: 'Anja', sans-serif;
+  font-size: 1.5rem;
+  text-align: center;
+  margin-top: -1rem;
+  font-weight: bold;
+  background: linear-gradient(45deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+input {
+  padding: 0.8rem 1rem;
+  border-radius: 8px;
+  border: none;
+  background: #00000055;
+  color: white;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+input:focus {
+  outline: none;
+}
+
+input::placeholder {
+  color: var(--iron);
+}
+
+input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

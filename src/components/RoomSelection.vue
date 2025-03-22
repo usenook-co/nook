@@ -75,7 +75,7 @@ async function joinRoom() {
   <div class="room-selection">
     <div class="room-selection-content">
       <div class="room-actions">
-        <button @click="createRoom" :disabled="isCreatingRoom" class="action-button create-button">
+        <button @click="createRoom" :disabled="isCreatingRoom">
           {{ isCreatingRoom ? 'Creating Room...' : 'Create New Room' }}
         </button>
 
@@ -83,12 +83,16 @@ async function joinRoom() {
 
         <div class="join-room">
           <input v-model="joinRoomInput" placeholder="Enter room name" class="room-input" :disabled="isJoiningRoom" />
-          <button @click="joinRoom" :disabled="isJoiningRoom || !joinRoomInput" class="action-button join-button">
+          <button @click="joinRoom" :disabled="isJoiningRoom || !joinRoomInput">
             {{ isJoiningRoom ? 'Joining...' : 'Join Room' }}
           </button>
         </div>
       </div>
 
+      <div class="credits">
+        nook &copy; 2025<br />
+        thanks to all contributors
+      </div>
       <div v-if="error" class="error-message">{{ error }}</div>
     </div>
   </div>
@@ -124,35 +128,7 @@ async function joinRoom() {
   width: 100%;
 }
 
-.action-button {
-  padding: 0.8rem 1.5rem;
-  border-radius: 8px;
-  font-weight: bold;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: none;
-  color: white;
-  width: 100%;
-  font-size: 0.9rem;
-}
-
-.create-button,
-.join-button {
-  background: linear-gradient(90deg, #f22950 0%, #f85d3b 100%);
-}
-
-.create-button:hover:not(:disabled),
-.join-button:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.action-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .divider {
-  color: rgba(255, 255, 255, 0.6);
   font-size: 0.9rem;
   margin: 0.5rem 0;
 }
@@ -164,28 +140,16 @@ async function joinRoom() {
   width: 100%;
 }
 
-.room-input {
-  padding: 0.8rem 1rem;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  font-size: 0.9rem;
-  width: 100%;
-}
-
-.room-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.room-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .error-message {
   margin-top: 1rem;
   color: #f44336;
   font-size: 0.9rem;
+}
+
+.credits {
+  margin-top: 3rem;
+  font-size: 0.65rem;
+  color: var(--iron);
+  opacity: 0.5;
 }
 </style>
