@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld('electron', {
       console.log('GIF selected event received in preload:', gifUrl)
       callback(gifUrl)
     })
+  },
+  onForwardDrawingEvent: (callback) => {
+    ipcRenderer.on('forwardDrawingEvent', (_, data) => {
+      callback(data)
+    })
+  },
+  broadcastDrawingEvent: (drawingData) => {
+    ipcRenderer.send('broadcastDrawingEvent', drawingData)
   }
 })
 

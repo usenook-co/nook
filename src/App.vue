@@ -207,6 +207,22 @@ async function createAndPublishDataTrack() {
     if (twilioLocalParticipant) {
       await twilioLocalParticipant.publishTrack(twilioDataTrack)
       console.log('Data track published successfully')
+      
+      // Listen for drawing events from whiteboard to forward to remote participants
+      if (window.electron) {
+        window.electron.onForwardDrawingEvent((drawingData) => {
+          if (twilioDataTrack) {
+            try {
+              twilioDataTrack.send(JSON.stringify({
+                type: 'drawing',
+                data: drawingData
+              }))
+            } catch (err) {
+              console.error('Error sending drawing data:', err)
+            }
+          }
+        })
+      }
     }
   } catch (err) {
     console.error('Error publishing data track:', err)
@@ -379,6 +395,11 @@ function handleDataTrackSubscribed(track, participant) {
       if (message.type === 'gif') {
         console.log('Received GIF from participant:', participant.identity, message.url)
         participantGifs.value.set(participant.sid, message.url)
+      } else if (message.type === 'drawing') {
+        // Forward drawing event to whiteboard window through main process
+        if (window.electron && window.electron.broadcastDrawingEvent) {
+          window.electron.broadcastDrawingEvent(message.data)
+        }
       } else if (message.type === 'chat') {
         console.log('Received chat message:', message)
         chatMessages.value.push(message)
