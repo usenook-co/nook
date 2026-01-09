@@ -3,6 +3,7 @@ import './polyfills'
 import './reset.css'
 import { ref, onMounted, onUnmounted, watch, provide } from 'vue'
 import Video from 'twilio-video'
+import ChatContainer from './components/ChatContainer.vue'
 
 // Keep Twilio objects outside of Vue's reactivity
 let twilioRoom = null
@@ -28,6 +29,7 @@ const wrapper = ref(null)
 const localStream = ref(null)
 const hasRemoteScreenShare = ref(false)
 const selectedGif = ref(null)
+const chatMessages = ref([])
 
 function startDrag() {
   if (window?.electron?.startDrag) {
@@ -130,6 +132,7 @@ async function leaveRoom() {
   roomName.value = ''
   joinRoomInput.value = ''
   participantGifs.value.clear() // Clear participant GIFs
+  chatMessages.value = [] // Clear chat messages
 }
 
 async function getBestVideoDevice() {
@@ -376,6 +379,9 @@ function handleDataTrackSubscribed(track, participant) {
       if (message.type === 'gif') {
         console.log('Received GIF from participant:', participant.identity, message.url)
         participantGifs.value.set(participant.sid, message.url)
+      } else if (message.type === 'chat') {
+        console.log('Received chat message:', message)
+        chatMessages.value.push(message)
       }
     } catch (err) {
       console.error('Error parsing data track message:', err)
@@ -545,6 +551,22 @@ function handleDirectGifSelection(gifUrl) {
   }
 }
 
+function sendChatMessage(message) {
+  if (!message.trim() || !twilioDataTrack) return
+
+  const messageData = {
+    type: 'chat',
+    message: message,
+    sender: identity.value,
+    timestamp: Date.now()
+  }
+
+  twilioDataTrack.send(JSON.stringify(messageData))
+
+  // Add message to local chat
+  chatMessages.value.push(messageData)
+}
+
 onMounted(() => {
   // Don't auto-initialize video, wait for user action
   showOverlay.value = true
@@ -667,6 +689,9 @@ function openGifSelectorWindow() {
 
       <div v-if="isConnected" class="room-info">
         <div class="room-name">Room: {{ roomName }}</div>
+
+        <ChatContainer :messages="chatMessages" @send-message="sendChatMessage" />
+
         <button @click="toggleScreenShare" class="screen-share-button" :class="{ active: isScreenSharing }">
           {{ isScreenSharing ? 'Stop Sharing' : 'Share Screen' }}
         </button>
